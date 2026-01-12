@@ -3,6 +3,7 @@ package com.anjia.unidbgserver;
 import lombok.extern.slf4j.Slf4j;
 import com.anjia.unidbgserver.utils.ConsoleNoiseFilter;
 import org.apache.commons.lang3.StringUtils;
+import org.springframework.boot.Banner;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.boot.context.properties.ConfigurationPropertiesScan;
@@ -10,8 +11,6 @@ import org.springframework.boot.context.properties.EnableConfigurationProperties
 import org.springframework.core.env.Environment;
 
 import java.net.InetAddress;
-import java.util.ArrayList;
-import java.util.List;
 
 @Slf4j
 @ConfigurationPropertiesScan
@@ -21,15 +20,57 @@ public class UnidbgServerApplication {
 
     private static final String SERVER_PORT = "server.port";
     private static final String SERVER_SERVLET_CONTEXT_PATH = "server.servlet.context-path";
-    private static final String SPRING_APPLICATION_NAME = "spring.application.name";
-    private static final String DEFAULT_APPLICATION_NAME = "unidbg-boot-server";
-    private static final String PROFILE_PREFIX = "application";
 
     public static void main(String[] args) {
         ConsoleNoiseFilter.install();
+        preferLocalConfigIfPresent();
         SpringApplication app = new SpringApplication(UnidbgServerApplication.class);
+        app.setBannerMode(Banner.Mode.OFF);
+        app.setLogStartupInfo(false);
         Environment env = app.run(args).getEnvironment();
         logApplicationStartup(env);
+    }
+
+    /**
+     * 默认只使用打包进 Jar 的配置（classpath:/application.yml）。
+     * <p>
+     * 若运行目录（工作目录）存在 application.yml，则优先使用它；否则回退到 Jar 内置配置。
+     * <p>
+     * 如需外置配置，请显式传入：
+     * <ul>
+     *   <li>--spring.config.location=...</li>
+     *   <li>或 -Dspring.config.location=...</li>
+     *   <li>或 --spring.config.additional-location=...</li>
+     * </ul>
+     *
+     * 若已显式设置 spring.config.location / spring.config.additional-location，则不覆盖。
+     */
+    private static void preferLocalConfigIfPresent() {
+        if (System.getProperty("spring.config.location") != null) {
+            return;
+        }
+        if (System.getProperty("spring.config.additional-location") != null) {
+            return;
+        }
+        if (System.getenv("SPRING_CONFIG_LOCATION") != null) {
+            return;
+        }
+        if (System.getenv("SPRING_CONFIG_ADDITIONAL_LOCATION") != null) {
+            return;
+        }
+
+        boolean hasLocalConfig = new java.io.File("application.yml").isFile()
+            || new java.io.File("application.yaml").isFile()
+            || new java.io.File("application.properties").isFile();
+
+        if (hasLocalConfig) {
+            // 若本地存在配置文件：允许 file:./ 覆盖 classpath
+            System.setProperty("spring.config.location",
+                "optional:file:./,optional:classpath:/");
+        } else {
+            // 本地没有配置文件：只读 classpath，避免扫描工作目录带来的不确定性
+            System.setProperty("spring.config.location", "optional:classpath:/");
+        }
     }
 
     private static void logApplicationStartup(Environment env) {
@@ -39,16 +80,6 @@ public class UnidbgServerApplication {
             contextPath = "/";
         }
         String hostAddress = InetAddress.getLoopbackAddress().getHostAddress();
-        List<String> profiles = new ArrayList<>(env.getActiveProfiles().length + 1);
-        profiles.add(PROFILE_PREFIX);
-        for (String profile : env.getActiveProfiles()) {
-            profiles.add(PROFILE_PREFIX + "-" + profile);
-        }
-        log.info("应用已启动: name={}, url=http://{}:{}{} , profiles={}",
-            StringUtils.defaultIfBlank(env.getProperty(SPRING_APPLICATION_NAME), DEFAULT_APPLICATION_NAME),
-            hostAddress,
-            serverPort,
-            contextPath,
-            profiles);
+        log.info("服务已启动: http://{}:{}{}", hostAddress, serverPort, contextPath);
     }
 }
