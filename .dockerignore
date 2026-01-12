@@ -1,0 +1,15 @@
+.git
+.github
+.idea
+.vscode
+**/*.iml
+
+docs/
+tools/
+
+target/
+!target/fqnovel.jar
+
+*.log
+logs/
+
