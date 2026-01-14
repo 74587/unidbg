@@ -39,6 +39,9 @@ public class FQSearchService {
     @Resource
     private UpstreamRateLimiter upstreamRateLimiter;
 
+    @Resource
+    private FQDeviceRotationService deviceRotationService;
+
     private final RestTemplate restTemplate = new RestTemplate();
     private final ObjectMapper objectMapper = new ObjectMapper();
 
@@ -153,14 +156,43 @@ public class FQSearchService {
                 FQNovelResponse<FQSearchResponse> firstResponse = performSearchInternal(firstRequest);
 
                 if (firstResponse.getCode() != 0) {
-                    log.warn("第一阶段搜索失败 - code: {}, message: {}", firstResponse.getCode(), firstResponse.getMessage());
-                    return firstResponse;
+                    // 某些风控/异常场景下，上游可能返回非 0；尝试切换设备后再试一次
+                    if (shouldRotate(firstResponse.getMessage())) {
+                        DeviceInfo rotated = deviceRotationService.rotateIfNeeded("SEARCH_PHASE1_FAIL");
+                        if (rotated != null) {
+                            firstResponse = performSearchInternal(firstRequest);
+                            if (firstResponse.getCode() == 0) {
+                                // 继续走后续逻辑
+                            } else {
+                                log.warn("第一阶段搜索失败 - code: {}, message: {}", firstResponse.getCode(), firstResponse.getMessage());
+                                return firstResponse;
+                            }
+                        } else {
+                            log.warn("第一阶段搜索失败 - code: {}, message: {}", firstResponse.getCode(), firstResponse.getMessage());
+                            return firstResponse;
+                        }
+                    }
+                    if (firstResponse.getCode() != 0) {
+                        log.warn("第一阶段搜索失败 - code: {}, message: {}", firstResponse.getCode(), firstResponse.getMessage());
+                        return firstResponse;
+                    }
                 }
 
                 String firstSearchId = firstResponse.getData() != null ? firstResponse.getData().getSearchId() : null;
                 if (firstSearchId == null || firstSearchId.trim().isEmpty()) {
-                    log.warn("第一阶段搜索未返回search_id");
-                    return firstResponse;
+                    // 该情况通常是上游返回异常/风控页；切换设备再试一次
+                    DeviceInfo rotated = deviceRotationService.rotateIfNeeded("SEARCH_NO_SEARCH_ID");
+                    if (rotated != null) {
+                        firstResponse = performSearchInternal(firstRequest);
+                        firstSearchId = firstResponse.getData() != null ? firstResponse.getData().getSearchId() : null;
+                        if (firstSearchId == null || firstSearchId.trim().isEmpty()) {
+                            log.warn("第一阶段搜索未返回search_id");
+                            return firstResponse;
+                        }
+                    } else {
+                        log.warn("第一阶段搜索未返回search_id");
+                        return firstResponse;
+                    }
                 }
 
                 String searchId = firstSearchId;
@@ -377,12 +409,24 @@ public class FQSearchService {
                 log.debug("第一阶段搜索未返回search_id，原始响应: {}", snippet(responseBody, 1200));
             }
 
-            return FQNovelResponse.success(searchResponse);
+                return FQNovelResponse.success(searchResponse);
 
         } catch (Exception e) {
             log.error("搜索请求失败 - query: {}", searchRequest.getQuery(), e);
             return FQNovelResponse.error("搜索请求失败: " + e.getMessage());
         }
+    }
+
+    private static boolean shouldRotate(String message) {
+        if (isBlank(message)) {
+            return false;
+        }
+        String m = message.toLowerCase(Locale.ROOT);
+        return m.contains("illegal_access")
+            || m.contains("risk")
+            || m.contains("风控")
+            || m.contains("forbidden")
+            || m.contains("permission");
     }
 
     /**

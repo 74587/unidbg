@@ -43,6 +43,8 @@ fq:
     retry-max-delay-ms: 10000
   api:
     base-url: https://api5-normal-sinfonlineb.fqnovel.com
+    user-agent: com.dragon.read.oversea.gp/68132 (Linux; U; Android 13; zh_CN; WLZ-AN00;
+      Build/V433IR;tt-ok/3.12.13.4-tiktok)
     cookie: store-region=cn-zj; store-region-src=did; install_id=670078579016233;
     device:
       aid: '1967'
@@ -58,5 +60,406 @@ fq:
       update-version-code: '68132'
       version-code: '68132'
       version-name: 6.8.1.32
-    user-agent: com.dragon.read.oversea.gp/68132 (Linux; U; Android 13; zh_CN; WLZ-AN00;
-      Build/V433IR;tt-ok/3.12.13.4-tiktok)
+      os-version: '13'
+      os-api: '32'
+    device-pool:
+      - name: dev001
+        user-agent: com.dragon.read.oversea.gp/68132 (Linux; U; Android 12; zh_CN; LE2100;
+          Build/V417IR;tt-ok/3.12.13.4-tiktok)
+        cookie: store-region=cn-zj; store-region-src=did; install_id=5939993070481531;
+        device:
+          aid: '1967'
+          cdid: 504ead1d-dfee-4b72-b09f-837743a086ae
+          device-brand: OnePlus
+          device-id: '5932478525639669'
+          device-type: LE2100
+          dpi: '320'
+          host-abi: arm64-v8a
+          install-id: '5939993070481531'
+          resolution: 1600*900
+          rom-version: V417IR+release-keys
+          update-version-code: '68132'
+          version-code: '68132'
+          version-name: 6.8.1.32
+          os-version: '12'
+          os-api: '32'
+      - name: dev002
+        user-agent: com.dragon.read.oversea.gp/68132 (Linux; U; Android 11; zh_CN; iQOO9;
+          Build/V394IR;tt-ok/3.12.13.4-tiktok)
+        cookie: store-region=cn-zj; store-region-src=did; install_id=4731035182011427;
+        device:
+          aid: '1967'
+          cdid: 82deac44-bfa2-4044-b344-db001494846e
+          device-brand: vivo
+          device-id: '7840786651573375'
+          device-type: iQOO9
+          dpi: '560'
+          host-abi: armeabi-v7a
+          install-id: '4731035182011427'
+          resolution: 2560*1440
+          rom-version: V394IR+release-keys
+          update-version-code: '68132'
+          version-code: '68132'
+          version-name: 6.8.1.32
+          os-version: '11'
+          os-api: '30'
+      - name: dev003
+        user-agent: com.dragon.read.oversea.gp/68132 (Linux; U; Android 13; zh_CN; 23078RKD5C;
+          Build/V433IR;tt-ok/3.12.13.4-tiktok)
+        cookie: store-region=cn-zj; store-region-src=did; install_id=9722471058643757;
+        device:
+          aid: '1967'
+          cdid: 5a07dfb5-f35b-40c6-95fa-180faa2338c0
+          device-brand: Xiaomi
+          device-id: '4387993150800872'
+          device-type: 23078RKD5C
+          dpi: '480'
+          host-abi: armeabi-v7a
+          install-id: '9722471058643757'
+          resolution: 2400*1080
+          rom-version: V433IR+release-keys
+          update-version-code: '68132'
+          version-code: '68132'
+          version-name: 6.8.1.32
+          os-version: '13'
+          os-api: '33'
+      - name: dev004
+        user-agent: com.dragon.read.oversea.gp/68132 (Linux; U; Android 12; zh_CN; 22081212C;
+          Build/V417IR;tt-ok/3.12.13.4-tiktok)
+        cookie: store-region=cn-zj; store-region-src=did; install_id=6932871508684569;
+        device:
+          aid: '1967'
+          cdid: ea995eee-d0ab-4624-b559-1bd8f94e8827
+          device-brand: Xiaomi
+          device-id: '5296687501147844'
+          device-type: 22081212C
+          dpi: '640'
+          host-abi: armeabi-v7a
+          install-id: '6932871508684569'
+          resolution: 3200*1440
+          rom-version: V417IR+release-keys
+          update-version-code: '68132'
+          version-code: '68132'
+          version-name: 6.8.1.32
+          os-version: '12'
+          os-api: '32'
+      - name: dev005
+        user-agent: com.dragon.read.oversea.gp/68132 (Linux; U; Android 13; zh_CN; GalaxyA53;
+          Build/V433IR;tt-ok/3.12.13.4-tiktok)
+        cookie: store-region=cn-zj; store-region-src=did; install_id=3519686860442795;
+        device:
+          aid: '1967'
+          cdid: 94ba9503-4f62-455e-a46e-78b8963a6046
+          device-brand: Samsung
+          device-id: '4813812547572449'
+          device-type: GalaxyA53
+          dpi: '480'
+          host-abi: arm64-v8a
+          install-id: '3519686860442795'
+          resolution: 2400*1080
+          rom-version: V433IR+release-keys
+          update-version-code: '68132'
+          version-code: '68132'
+          version-name: 6.8.1.32
+          os-version: '13'
+          os-api: '33'
+      - name: dev006
+        user-agent: com.dragon.read.oversea.gp/68132 (Linux; U; Android 12; zh_CN; RedmiK50;
+          Build/V417IR;tt-ok/3.12.13.4-tiktok)
+        cookie: store-region=cn-zj; store-region-src=did; install_id=8054417963743272;
+        device:
+          aid: '1967'
+          cdid: 90810983-7359-44b9-9a13-072aa025c1b4
+          device-brand: Xiaomi
+          device-id: '9622522151879624'
+          device-type: RedmiK50
+          dpi: '320'
+          host-abi: armeabi-v7a
+          install-id: '8054417963743272'
+          resolution: 1600*900
+          rom-version: V417IR+release-keys
+          update-version-code: '68132'
+          version-code: '68132'
+          version-name: 6.8.1.32
+          os-version: '12'
+          os-api: '32'
+      - name: dev007
+        user-agent: com.dragon.read.oversea.gp/68132 (Linux; U; Android 10; zh_CN; M2006C3LG;
+          Build/V291IR;tt-ok/3.12.13.4-tiktok)
+        cookie: store-region=cn-zj; store-region-src=did; install_id=8954746617998552;
+        device:
+          aid: '1967'
+          cdid: bc7d6d1c-8cd6-4c58-958c-3fbec526bac6
+          device-brand: Xiaomi
+          device-id: '2781845341078474'
+          device-type: M2006C3LG
+          dpi: '640'
+          host-abi: armeabi-v7a
+          install-id: '8954746617998552'
+          resolution: 3200*1440
+          rom-version: V291IR+release-keys
+          update-version-code: '68132'
+          version-code: '68132'
+          version-name: 6.8.1.32
+          os-version: '10'
+          os-api: '29'
+      - name: dev008
+        user-agent: com.dragon.read.oversea.gp/68132 (Linux; U; Android 12; zh_CN; PEQM00;
+          Build/V417IR;tt-ok/3.12.13.4-tiktok)
+        cookie: store-region=cn-zj; store-region-src=did; install_id=5171111670169736;
+        device:
+          aid: '1967'
+          cdid: d6b71a06-9295-4218-ab00-5790905c79d9
+          device-brand: OPPO
+          device-id: '2738909259389945'
+          device-type: PEQM00
+          dpi: '480'
+          host-abi: armeabi-v7a
+          install-id: '5171111670169736'
+          resolution: 1920*1080
+          rom-version: V417IR+release-keys
+          update-version-code: '68132'
+          version-code: '68132'
+          version-name: 6.8.1.32
+          os-version: '12'
+          os-api: '32'
+      - name: dev009
+        user-agent: com.dragon.read.oversea.gp/68132 (Linux; U; Android 11; zh_CN; Mate40;
+          Build/V394IR;tt-ok/3.12.13.4-tiktok)
+        cookie: store-region=cn-zj; store-region-src=did; install_id=7167371623627370;
+        device:
+          aid: '1967'
+          cdid: d1d19ddb-f983-4762-855f-c0d7c9bad6fa
+          device-brand: HUAWEI
+          device-id: '2898660203319310'
+          device-type: Mate40
+          dpi: '560'
+          host-abi: armeabi-v7a
+          install-id: '7167371623627370'
+          resolution: 2560*1440
+          rom-version: V394IR+release-keys
+          update-version-code: '68132'
+          version-code: '68132'
+          version-name: 6.8.1.32
+          os-version: '11'
+          os-api: '30'
+      - name: dev010
+        user-agent: com.dragon.read.oversea.gp/68132 (Linux; U; Android 13; zh_CN; A96;
+          Build/V433IR;tt-ok/3.12.13.4-tiktok)
+        cookie: store-region=cn-zj; store-region-src=did; install_id=5003289011491087;
+        device:
+          aid: '1967'
+          cdid: 0d78f18f-b948-41d1-ab26-1261327b0bfd
+          device-brand: OPPO
+          device-id: '6562870814955009'
+          device-type: A96
+          dpi: '440'
+          host-abi: armeabi-v7a
+          install-id: '5003289011491087'
+          resolution: 2340*1080
+          rom-version: V433IR+release-keys
+          update-version-code: '68132'
+          version-code: '68132'
+          version-name: 6.8.1.32
+          os-version: '13'
+          os-api: '33'
+      - name: dev011
+        user-agent: com.dragon.read.oversea.gp/68132 (Linux; U; Android 10; zh_CN; RedmiK40;
+          Build/V291IR;tt-ok/3.12.13.4-tiktok)
+        cookie: store-region=cn-zj; store-region-src=did; install_id=6228690592883927;
+        device:
+          aid: '1967'
+          cdid: f6e7b4f9-22f4-4b5e-828e-28b343b8c2b3
+          device-brand: Xiaomi
+          device-id: '4747956382733972'
+          device-type: RedmiK40
+          dpi: '440'
+          host-abi: armeabi-v7a
+          install-id: '6228690592883927'
+          resolution: 2340*1080
+          rom-version: V291IR+release-keys
+          update-version-code: '68132'
+          version-code: '68132'
+          version-name: 6.8.1.32
+          os-version: '10'
+          os-api: '29'
+      - name: dev012
+        user-agent: com.dragon.read.oversea.gp/68132 (Linux; U; Android 12; zh_CN; P50;
+          Build/V417IR;tt-ok/3.12.13.4-tiktok)
+        cookie: store-region=cn-zj; store-region-src=did; install_id=4946454248276447;
+        device:
+          aid: '1967'
+          cdid: 07422d32-01ba-4df5-9a4b-27db3a4194af
+          device-brand: HUAWEI
+          device-id: '2196744622983826'
+          device-type: P50
+          dpi: '640'
+          host-abi: arm64-v8a
+          install-id: '4946454248276447'
+          resolution: 3200*1440
+          rom-version: V417IR+release-keys
+          update-version-code: '68132'
+          version-code: '68132'
+          version-name: 6.8.1.32
+          os-version: '12'
+          os-api: '32'
+      - name: dev013
+        user-agent: com.dragon.read.oversea.gp/68132 (Linux; U; Android 13; zh_CN; PDSM00;
+          Build/V433IR;tt-ok/3.12.13.4-tiktok)
+        cookie: store-region=cn-zj; store-region-src=did; install_id=2130738875970291;
+        device:
+          aid: '1967'
+          cdid: 74d6a072-1016-466a-8c96-85fe7031c29e
+          device-brand: OPPO
+          device-id: '6257291446830904'
+          device-type: PDSM00
+          dpi: '440'
+          host-abi: armeabi-v7a
+          install-id: '2130738875970291'
+          resolution: 2340*1080
+          rom-version: V433IR+release-keys
+          update-version-code: '68132'
+          version-code: '68132'
+          version-name: 6.8.1.32
+          os-version: '13'
+          os-api: '33'
+      - name: dev014
+        user-agent: com.dragon.read.oversea.gp/68132 (Linux; U; Android 10; zh_CN; Reno8;
+          Build/V291IR;tt-ok/3.12.13.4-tiktok)
+        cookie: store-region=cn-zj; store-region-src=did; install_id=1978561300425466;
+        device:
+          aid: '1967'
+          cdid: 2fd4ff05-8b80-435d-892f-fec28d3811c7
+          device-brand: OPPO
+          device-id: '7550923861718370'
+          device-type: Reno8
+          dpi: '640'
+          host-abi: arm64-v8a
+          install-id: '1978561300425466'
+          resolution: 3200*1440
+          rom-version: V291IR+release-keys
+          update-version-code: '68132'
+          version-code: '68132'
+          version-name: 6.8.1.32
+          os-version: '10'
+          os-api: '29'
+      - name: dev015
+        user-agent: com.dragon.read.oversea.gp/68132 (Linux; U; Android 10; zh_CN; SM-G9910;
+          Build/V291IR;tt-ok/3.12.13.4-tiktok)
+        cookie: store-region=cn-zj; store-region-src=did; install_id=3262907712688973;
+        device:
+          aid: '1967'
+          cdid: 5e6217fd-d4e7-4003-813f-c23f84675628
+          device-brand: Samsung
+          device-id: '1791717333217341'
+          device-type: SM-G9910
+          dpi: '560'
+          host-abi: arm64-v8a
+          install-id: '3262907712688973'
+          resolution: 2560*1440
+          rom-version: V291IR+release-keys
+          update-version-code: '68132'
+          version-code: '68132'
+          version-name: 6.8.1.32
+          os-version: '10'
+          os-api: '29'
+      - name: dev016
+        user-agent: com.dragon.read.oversea.gp/68132 (Linux; U; Android 12; zh_CN; V2073A;
+          Build/V417IR;tt-ok/3.12.13.4-tiktok)
+        cookie: store-region=cn-zj; store-region-src=did; install_id=6201852417450231;
+        device:
+          aid: '1967'
+          cdid: ae1cd4b0-4545-4b9e-ba85-23b8132f4d7b
+          device-brand: vivo
+          device-id: '8895387659134652'
+          device-type: V2073A
+          dpi: '480'
+          host-abi: arm64-v8a
+          install-id: '6201852417450231'
+          resolution: 1920*1080
+          rom-version: V417IR+release-keys
+          update-version-code: '68132'
+          version-code: '68132'
+          version-name: 6.8.1.32
+          os-version: '12'
+          os-api: '32'
+      - name: dev017
+        user-agent: com.dragon.read.oversea.gp/68132 (Linux; U; Android 14; zh_CN; M2011K2C;
+          Build/V451IR;tt-ok/3.12.13.4-tiktok)
+        cookie: store-region=cn-zj; store-region-src=did; install_id=5988730236508243;
+        device:
+          aid: '1967'
+          cdid: 54e8b406-0cbe-460e-80d5-5168ed97af5e
+          device-brand: Xiaomi
+          device-id: '7652687552652770'
+          device-type: M2011K2C
+          dpi: '440'
+          host-abi: armeabi-v7a
+          install-id: '5988730236508243'
+          resolution: 2340*1080
+          rom-version: V451IR+release-keys
+          update-version-code: '68132'
+          version-code: '68132'
+          version-name: 6.8.1.32
+          os-version: '14'
+          os-api: '34'
+      - name: dev018
+        user-agent: com.dragon.read.oversea.gp/68132 (Linux; U; Android 12; zh_CN; OnePlus10;
+          Build/V417IR;tt-ok/3.12.13.4-tiktok)
+        cookie: store-region=cn-zj; store-region-src=did; install_id=4736771882704747;
+        device:
+          aid: '1967'
+          cdid: 0d3fdd98-6d2b-44a5-aa50-859ba115f1dc
+          device-brand: OnePlus
+          device-id: '6103567454513478'
+          device-type: OnePlus10
+          dpi: '440'
+          host-abi: armeabi-v7a
+          install-id: '4736771882704747'
+          resolution: 2340*1080
+          rom-version: V417IR+release-keys
+          update-version-code: '68132'
+          version-code: '68132'
+          version-name: 6.8.1.32
+          os-version: '12'
+          os-api: '32'
+      - name: dev019
+        user-agent: com.dragon.read.oversea.gp/68132 (Linux; U; Android 14; zh_CN; 2106118C;
+          Build/V451IR;tt-ok/3.12.13.4-tiktok)
+        cookie: store-region=cn-zj; store-region-src=did; install_id=5805370734540862;
+        device:
+          aid: '1967'
+          cdid: 9c08bf4c-a5e2-4710-a9ce-81e7d0a0d333
+          device-brand: Xiaomi
+          device-id: '6734337697123142'
+          device-type: 2106118C
+          dpi: '560'
+          host-abi: armeabi-v7a
+          install-id: '5805370734540862'
+          resolution: 2560*1440
+          rom-version: V451IR+release-keys
+          update-version-code: '68132'
+          version-code: '68132'
+          version-name: 6.8.1.32
+          os-version: '14'
+          os-api: '34'
+      - name: dev020
+        user-agent: com.dragon.read.oversea.gp/68132 (Linux; U; Android 14; zh_CN; 2201123C;
+          Build/V451IR;tt-ok/3.12.13.4-tiktok)
+        cookie: store-region=cn-zj; store-region-src=did; install_id=5245859882089345;
+        device:
+          aid: '1967'
+          cdid: 2ff8e4b0-2459-4523-b6ba-985f2dadb74e
+          device-brand: Xiaomi
+          device-id: '3891671166412675'
+          device-type: 2201123C
+          dpi: '560'
+          host-abi: arm64-v8a
+          install-id: '5245859882089345'
+          resolution: 2560*1440
+          rom-version: V451IR+release-keys
+          update-version-code: '68132'
+          version-code: '68132'
+          version-name: 6.8.1.32
+          os-version: '14'
+          os-api: '34'

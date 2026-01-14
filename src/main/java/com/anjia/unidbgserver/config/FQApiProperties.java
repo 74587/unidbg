@@ -4,6 +4,9 @@ import lombok.Data;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.stereotype.Component;
 
+import java.util.ArrayList;
+import java.util.List;
+
 /**
  * FQ API 配置属性
  * 用于管理FQ API的设备参数和请求配置
@@ -32,6 +35,36 @@ public class FQApiProperties {
      * 设备参数配置
      */
     private Device device = new Device();
+
+    /**
+     * 预置设备池：风控（ILLEGAL_ACCESS 等）时按配置切换设备信息。
+     * <p>
+     * 配置示例：
+     * <pre>
+     * fq:
+     *   api:
+     *     device-pool:
+     *       - name: dev1
+     *         user-agent: ...
+     *         cookie: ...
+     *         device: { ... }
+     *       - name: dev2
+     *         ...
+     * </pre>
+     */
+    private List<DeviceProfile> devicePool = new ArrayList<>();
+
+    @Data
+    public static class DeviceProfile {
+        /**
+         * 可选：用于日志识别
+         */
+        private String name;
+
+        private String userAgent;
+        private String cookie;
+        private Device device = new Device();
+    }
     
     @Data
     public static class Device {
