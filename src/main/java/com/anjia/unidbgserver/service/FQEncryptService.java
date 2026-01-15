@@ -13,19 +13,44 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.HashSet;
+import java.util.concurrent.locks.ReentrantLock;
 import java.util.regex.Pattern;
 
 @Slf4j
 public class FQEncryptService {
 
-    private final IdleFQ idleFQ;
+    private final UnidbgProperties properties;
+    private final ReentrantLock lock = new ReentrantLock();
+    private volatile IdleFQ idleFQ;
     private final ObjectMapper objectMapper = new ObjectMapper();
     private static final Pattern HEADER_COLON_PAIR = Pattern.compile("^[A-Za-z0-9-]{1,64}:\\s*.+$");
 
     public FQEncryptService(UnidbgProperties properties) {
-        // 根据配置设置是否显示日志
-        this.idleFQ = new IdleFQ(properties.isVerbose(), properties.getApkPath(), properties.getApkClasspath());
+        this.properties = properties;
+        this.idleFQ = createIdleFq();
         log.info("FQ签名服务初始化完成");
+    }
+
+    public void reset(String reason) {
+        lock.lock();
+        try {
+            IdleFQ old = this.idleFQ;
+            this.idleFQ = createIdleFq();
+            if (old != null) {
+                try {
+                    old.destroy();
+                } catch (Exception ignored) {
+                    // ignore
+                }
+            }
+            log.warn("FQ签名服务已重置，reason={}", reason);
+        } finally {
+            lock.unlock();
+        }
+    }
+
+    private IdleFQ createIdleFq() {
+        return new IdleFQ(properties.isVerbose(), properties.getApkPath(), properties.getApkClasspath());
     }
 
     /**
@@ -40,8 +65,21 @@ public class FQEncryptService {
             log.debug("准备生成FQ签名 - URL: {}", url);
             log.debug("准备生成FQ签名 - Headers: {}", headers);
 
+            IdleFQ signer = this.idleFQ;
+            if (signer == null) {
+                lock.lock();
+                try {
+                    if (this.idleFQ == null) {
+                        this.idleFQ = createIdleFq();
+                    }
+                    signer = this.idleFQ;
+                } finally {
+                    lock.unlock();
+                }
+            }
+
             // 调用IdleFQ的签名生成方法
-            String signatureResult = idleFQ.generateSignature(url, headers);
+            String signatureResult = signer.generateSignature(url, headers);
 
             if (signatureResult == null || signatureResult.isEmpty()) {
                 log.error("签名生成失败，返回结果为空");
@@ -191,8 +229,16 @@ public class FQEncryptService {
      */
     public void destroy() {
         // 清理IdleFQ资源
-        if (idleFQ != null) {
-            idleFQ.destroy();
+        IdleFQ old;
+        lock.lock();
+        try {
+            old = this.idleFQ;
+            this.idleFQ = null;
+        } finally {
+            lock.unlock();
+        }
+        if (old != null) {
+            old.destroy();
         }
 
         // 清理临时文件

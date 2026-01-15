@@ -54,6 +54,22 @@ public class FQApiProperties {
      */
     private List<DeviceProfile> devicePool = new ArrayList<>();
 
+    /**
+     * 设备池生效数量（默认 3）：仅使用前 N 个设备，避免配置过大/频繁轮换。
+     */
+    private int devicePoolSize = 3;
+
+    /**
+     * 启动时是否随机选择设备池中的一个作为当前设备（默认 true）。
+     */
+    private boolean devicePoolShuffleOnStartup = true;
+
+    /**
+     * 风控切换冷却时间（毫秒，默认 30000）。
+     * 避免触发风控后频繁轮换设备导致“疯狂切换/疯狂刷新 registerkey”。
+     */
+    private long deviceRotateCooldownMs = 30_000L;
+
     @Data
     public static class DeviceProfile {
         /**

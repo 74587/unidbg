@@ -13,14 +13,18 @@ import org.springframework.stereotype.Service;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicLong;
 
 @Slf4j
 @Service("fqEncryptWorker")
 public class FQEncryptServiceWorker extends Worker {
 
+    private static final AtomicLong RESET_EPOCH = new AtomicLong(0L);
+
     private UnidbgProperties unidbgProperties;
     private WorkerPool pool;
     private FQEncryptService fqEncryptService;
+    private long localResetEpoch = 0L;
 
     @Autowired
     public void init(UnidbgProperties unidbgProperties) {
@@ -58,6 +62,12 @@ public class FQEncryptServiceWorker extends Worker {
         unidbgProperties.setApkClasspath(apkClasspath);
         log.info("FQ签名服务 - 是否启用动态引擎:{}, 是否打印详细信息:{}", dynarmic, verbose);
         this.fqEncryptService = new FQEncryptService(unidbgProperties);
+    }
+
+    public static long requestGlobalReset(String reason) {
+        long epoch = RESET_EPOCH.incrementAndGet();
+        log.warn("请求重置 FQ signer（unidbg）: epoch={}, reason={}", epoch, reason);
+        return epoch;
     }
 
     /**
@@ -128,6 +138,7 @@ public class FQEncryptServiceWorker extends Worker {
      * 执行签名生成工作 (字符串格式headers)
      */
     private Map<String, String> doWork(String url, String headers) {
+        ensureResetUpToDate();
         return fqEncryptService.generateSignatureHeaders(url, headers);
     }
 
@@ -135,7 +146,19 @@ public class FQEncryptServiceWorker extends Worker {
      * 执行签名生成工作 (Map格式headers)
      */
     private Map<String, String> doWorkWithMap(String url, Map<String, String> headerMap) {
+        ensureResetUpToDate();
         return fqEncryptService.generateSignatureHeaders(url, headerMap);
+    }
+
+    private void ensureResetUpToDate() {
+        long epoch = RESET_EPOCH.get();
+        if (epoch == localResetEpoch) {
+            return;
+        }
+        if (fqEncryptService != null) {
+            fqEncryptService.reset("RESET_EPOCH:" + epoch);
+        }
+        localResetEpoch = epoch;
     }
 
     @SneakyThrows

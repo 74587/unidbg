@@ -1,6 +1,7 @@
 package com.anjia.unidbgserver.service;
 
 import com.anjia.unidbgserver.config.FQApiProperties;
+import com.anjia.unidbgserver.config.FQDownloadProperties;
 import com.anjia.unidbgserver.dto.*;
 import com.anjia.unidbgserver.utils.FQApiUtils;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -16,6 +17,7 @@ import java.io.ByteArrayOutputStream;
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.util.*;
+import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.CompletableFuture;
 import java.util.zip.GZIPInputStream;
 
@@ -41,6 +43,12 @@ public class FQSearchService {
 
     @Resource
     private FQDeviceRotationService deviceRotationService;
+
+    @Resource
+    private AutoRestartService autoRestartService;
+
+    @Resource
+    private FQDownloadProperties downloadProperties;
 
     private final RestTemplate restTemplate = new RestTemplate();
     private final ObjectMapper objectMapper = new ObjectMapper();
@@ -84,6 +92,41 @@ public class FQSearchService {
         if (value == null) return "";
         if (value.length() <= maxLen) return value;
         return value.substring(0, Math.max(0, maxLen)) + "...";
+    }
+
+    private static boolean hasBooks(FQNovelResponse<FQSearchResponse> response) {
+        if (response == null || response.getData() == null) {
+            return false;
+        }
+        List<FQSearchResponse.BookItem> books = response.getData().getBooks();
+        return books != null && !books.isEmpty();
+    }
+
+    private static String extractSearchId(FQNovelResponse<FQSearchResponse> response) {
+        if (response == null || response.getData() == null) {
+            return "";
+        }
+        String id = response.getData().getSearchId();
+        return id == null ? "" : id.trim();
+    }
+
+    private void sleepRetryBackoff(int attempt) {
+        long base = Math.max(0L, downloadProperties.getRetryDelayMs());
+        long max = Math.max(base, downloadProperties.getRetryMaxDelayMs());
+        long delay = base;
+        for (int i = 1; i < attempt; i++) {
+            delay = Math.min(max, delay * 2);
+        }
+        long jitter = ThreadLocalRandom.current().nextLong(150L, 450L);
+        long total = Math.min(max, delay + jitter);
+        if (total <= 0) {
+            return;
+        }
+        try {
+            Thread.sleep(total);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
     }
 
     /**
@@ -148,7 +191,13 @@ public class FQSearchService {
             try {
                 // 如果用户已经提供了search_id，直接进行搜索
                 if (searchRequest.getSearchId() != null && !searchRequest.getSearchId().trim().isEmpty()) {
-                    return performSearchWithId(searchRequest);
+                    FQNovelResponse<FQSearchResponse> response = performSearchWithId(searchRequest);
+                    if (response != null && response.getCode() != null && response.getCode() == 0) {
+                        autoRestartService.recordSuccess();
+                    } else {
+                        autoRestartService.recordFailure("SEARCH_WITH_ID_FAIL");
+                    }
+                    return response;
                 }
 
                 // 第一阶段：获取search_id
@@ -165,33 +214,74 @@ public class FQSearchService {
                                 // 继续走后续逻辑
                             } else {
                                 log.warn("第一阶段搜索失败 - code: {}, message: {}", firstResponse.getCode(), firstResponse.getMessage());
+                                autoRestartService.recordFailure("SEARCH_PHASE1_FAIL");
                                 return firstResponse;
                             }
                         } else {
                             log.warn("第一阶段搜索失败 - code: {}, message: {}", firstResponse.getCode(), firstResponse.getMessage());
+                            autoRestartService.recordFailure("SEARCH_PHASE1_FAIL");
                             return firstResponse;
                         }
                     }
                     if (firstResponse.getCode() != 0) {
                         log.warn("第一阶段搜索失败 - code: {}, message: {}", firstResponse.getCode(), firstResponse.getMessage());
+                        autoRestartService.recordFailure("SEARCH_PHASE1_FAIL");
                         return firstResponse;
                     }
                 }
 
-                String firstSearchId = firstResponse.getData() != null ? firstResponse.getData().getSearchId() : null;
-                if (firstSearchId == null || firstSearchId.trim().isEmpty()) {
-                    // 该情况通常是上游返回异常/风控页；切换设备再试一次
-                    DeviceInfo rotated = deviceRotationService.rotateIfNeeded("SEARCH_NO_SEARCH_ID");
-                    if (rotated != null) {
-                        firstResponse = performSearchInternal(firstRequest);
-                        firstSearchId = firstResponse.getData() != null ? firstResponse.getData().getSearchId() : null;
-                        if (firstSearchId == null || firstSearchId.trim().isEmpty()) {
-                            log.warn("第一阶段搜索未返回search_id");
-                            return firstResponse;
-                        }
-                    } else {
-                        log.warn("第一阶段搜索未返回search_id");
+                String firstSearchId = extractSearchId(firstResponse);
+                if (isBlank(firstSearchId)) {
+                    // 如果第一阶段已返回可用书籍列表（即使缺 search_id），直接返回，避免误判为“不可用”
+                    if (hasBooks(firstResponse)) {
+                        log.info("第一阶段未返回search_id，但已返回书籍结果，跳过第二阶段");
+                        autoRestartService.recordSuccess();
                         return firstResponse;
+                    }
+
+                    // 自愈：对“缺 search_id 且无结果”进行有限重试 + 轮换（最多轮换到池内其他设备）
+                    int perDeviceRetries = Math.max(1, Math.min(2, downloadProperties.getMaxRetries()));
+                    int maxDevices = Math.max(1, fqApiProperties.getDevicePool() != null ? fqApiProperties.getDevicePool().size() : 1);
+
+                    FQNovelResponse<FQSearchResponse> candidate = firstResponse;
+                    String candidateSearchId = "";
+
+                    for (int deviceAttempt = 0; deviceAttempt < maxDevices; deviceAttempt++) {
+                        if (deviceAttempt > 0) {
+                            DeviceInfo rotated = deviceRotationService.forceRotate("SEARCH_NO_SEARCH_ID");
+                            if (rotated == null) {
+                                break;
+                            }
+                        }
+
+                        for (int retryAttempt = 0; retryAttempt < perDeviceRetries; retryAttempt++) {
+                            if (deviceAttempt != 0 || retryAttempt != 0) {
+                                sleepRetryBackoff(deviceAttempt * perDeviceRetries + retryAttempt + 1);
+                                candidate = performSearchInternal(firstRequest);
+                            }
+
+                            candidateSearchId = extractSearchId(candidate);
+                            if (!isBlank(candidateSearchId)) {
+                                firstResponse = candidate;
+                                firstSearchId = candidateSearchId;
+                                break;
+                            }
+                            if (hasBooks(candidate)) {
+                                log.info("第一阶段未返回search_id，但重试后已返回书籍结果，跳过第二阶段");
+                                autoRestartService.recordSuccess();
+                                return candidate;
+                            }
+                        }
+
+                        if (!isBlank(firstSearchId)) {
+                            break;
+                        }
+                    }
+
+                    if (isBlank(firstSearchId)) {
+                        log.warn("第一阶段搜索未返回search_id（可能风控/上游异常），建议稍后重试");
+                        autoRestartService.recordFailure("SEARCH_NO_SEARCH_ID");
+                        return FQNovelResponse.error("上游未返回search_id（可能风控/上游异常），请稍后重试");
                     }
                 }
 
@@ -216,10 +306,16 @@ public class FQSearchService {
                     secondResponse.getData().setSearchId(searchId);
                 }
 
+                if (secondResponse != null && secondResponse.getCode() != null && secondResponse.getCode() == 0) {
+                    autoRestartService.recordSuccess();
+                } else {
+                    autoRestartService.recordFailure("SEARCH_PHASE2_FAIL");
+                }
                 return secondResponse;
 
             } catch (Exception e) {
                 log.error("增强搜索失败 - query: {}", searchRequest.getQuery(), e);
+                autoRestartService.recordFailure("SEARCH_EXCEPTION");
                 return FQNovelResponse.error("增强搜索失败: " + e.getMessage());
             }
         });
@@ -409,7 +505,7 @@ public class FQSearchService {
                 log.debug("第一阶段搜索未返回search_id，原始响应: {}", snippet(responseBody, 1200));
             }
 
-                return FQNovelResponse.success(searchResponse);
+            return FQNovelResponse.success(searchResponse);
 
         } catch (Exception e) {
             log.error("搜索请求失败 - query: {}", searchRequest.getQuery(), e);
@@ -473,10 +569,12 @@ public class FQSearchService {
                 int tabType = searchRequest.getTabType(); // 从请求获取需要的tab_type
                 FQSearchResponse searchResponse = parseSearchResponse(jsonResponse,tabType);
 
+                autoRestartService.recordSuccess();
                 return FQNovelResponse.success(searchResponse);
 
             } catch (Exception e) {
                 log.error("搜索书籍失败 - query: {}", searchRequest.getQuery(), e);
+                autoRestartService.recordFailure("SEARCH_SIMPLE_EXCEPTION");
                 return FQNovelResponse.error("搜索书籍失败: " + e.getMessage());
             }
         });

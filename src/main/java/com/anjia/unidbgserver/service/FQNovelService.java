@@ -64,6 +64,9 @@ public class FQNovelService {
     @Resource
     private FQDeviceRotationService deviceRotationService;
 
+    @Resource
+    private AutoRestartService autoRestartService;
+
     private final RestTemplate restTemplate = new RestTemplate();
     private final ObjectMapper objectMapper = new ObjectMapper();
 
@@ -157,6 +160,7 @@ public class FQNovelService {
                         return FQNovelResponse.error((int) batchResponse.getCode(), msg);
                     }
 
+                    autoRestartService.recordSuccess();
                     return FQNovelResponse.success(batchResponse);
 
                 } catch (Exception e) {
@@ -167,6 +171,9 @@ public class FQNovelService {
                     boolean nonJson = message.contains("UPSTREAM_NON_JSON");
 
                     boolean retryable = illegal || empty || gzipErr || nonJson;
+                    if (retryable) {
+                        autoRestartService.recordFailure(illegal ? "ILLEGAL_ACCESS" : (empty ? "UPSTREAM_EMPTY" : (gzipErr ? "UPSTREAM_GZIP" : "UPSTREAM_NON_JSON")));
+                    }
                     if (!retryable || attempt >= maxAttempts) {
                         if (retryable && illegal) {
                             return FQNovelResponse.error("批量获取章节内容失败: ILLEGAL_ACCESS（已重试仍失败，建议更换设备/降低频率）");

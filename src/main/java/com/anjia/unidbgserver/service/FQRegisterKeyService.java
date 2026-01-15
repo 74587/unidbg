@@ -10,7 +10,6 @@ import org.springframework.http.*;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestTemplate;
 
-import javax.annotation.PostConstruct;
 import javax.annotation.Resource;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
@@ -57,28 +56,6 @@ public class FQRegisterKeyService {
      */
     private FqVariable getDefaultFqVariable() {
         return new FqVariable(fqApiProperties);
-    }
-
-    /**
-     * 启动时初始化registerkey
-     */
-    @PostConstruct
-    public void initialize() {
-        log.info("初始化FQRegisterKeyService，获取初始registerkey...");
-        try {
-            // 获取初始registerkey
-            FqRegisterKeyResponse response = fetchRegisterKey();
-            if (response != null && response.getData() != null) {
-                long keyver = response.getData().getKeyver();
-                cachedRegisterKeys.put(keyver, response);
-                currentRegisterKey = response;
-                log.debug("初始registerkey获取成功，keyver: {}, content: {}", keyver,response.getData().getKey());
-            } else {
-                log.error("初始registerkey获取失败，响应为空");
-            }
-        } catch (Exception e) {
-            log.error("初始化registerkey失败", e);
-        }
     }
 
     /**

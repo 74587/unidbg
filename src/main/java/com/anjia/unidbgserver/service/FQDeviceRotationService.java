@@ -6,7 +6,11 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
+import javax.annotation.PostConstruct;
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
+import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.locks.ReentrantLock;
 
@@ -26,21 +30,63 @@ public class FQDeviceRotationService {
     private volatile long lastRotateAtMs = 0L;
     private final AtomicInteger poolIndex = new AtomicInteger(0);
 
+    @PostConstruct
+    public void initDevicePoolOnStartup() {
+        List<FQApiProperties.DeviceProfile> pool = fqApiProperties.getDevicePool();
+        if (pool == null || pool.isEmpty()) {
+            return;
+        }
+
+        int limit = Math.max(1, fqApiProperties.getDevicePoolSize());
+        if (pool.size() > limit) {
+            pool = new ArrayList<>(pool.subList(0, limit));
+            fqApiProperties.setDevicePool(pool);
+        }
+
+        if (fqApiProperties.isDevicePoolShuffleOnStartup() && pool.size() > 1) {
+            Collections.shuffle(pool, ThreadLocalRandom.current());
+        }
+
+        // 启动时随机选择一个作为当前设备（经过 shuffle 后取第一个即可）
+        FQApiProperties.DeviceProfile selected = pool.get(0);
+        applyDeviceProfile(selected);
+        poolIndex.set(1);
+
+        String name = selected.getName();
+        String deviceId = selected.getDevice() != null ? selected.getDevice().getDeviceId() : null;
+        String installId = selected.getDevice() != null ? selected.getDevice().getInstallId() : null;
+        log.info("启动已选择设备池设备：name={}, deviceId={}, installId={}", name, deviceId, installId);
+    }
+
     /**
      * 尝试旋转设备（带冷却时间，避免并发风暴）。
      *
      * @return 旋转成功返回新设备信息，否则返回 null
      */
     public DeviceInfo rotateIfNeeded(String reason) {
+        return rotateInternal(reason, false);
+    }
+
+    /**
+     * 强制旋转设备（忽略冷却时间），用于单次请求内的自愈流程。
+     * 仍然会加锁，避免并发下“乱序切换”。
+     */
+    public DeviceInfo forceRotate(String reason) {
+        return rotateInternal(reason, true);
+    }
+
+    private DeviceInfo rotateInternal(String reason, boolean ignoreCooldown) {
         long now = System.currentTimeMillis();
-        if (now - lastRotateAtMs < 5000L) {
+        long cooldownMs = Math.max(0L, fqApiProperties.getDeviceRotateCooldownMs());
+        if (!ignoreCooldown && now - lastRotateAtMs < cooldownMs) {
             return null;
         }
 
         lock.lock();
         try {
             now = System.currentTimeMillis();
-            if (now - lastRotateAtMs < 5000L) {
+            cooldownMs = Math.max(0L, fqApiProperties.getDeviceRotateCooldownMs());
+            if (!ignoreCooldown && now - lastRotateAtMs < cooldownMs) {
                 return null;
             }
 

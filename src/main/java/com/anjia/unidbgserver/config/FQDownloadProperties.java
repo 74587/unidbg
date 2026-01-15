@@ -50,4 +50,24 @@ public class FQDownloadProperties {
      * 目录缓存 TTL（ms）
      */
     private long directoryCacheTtlMs = 30 * 60 * 1000L;
+
+    /**
+     * 自动重启开关：当连续异常达到阈值后，主动退出进程（由 Docker/systemd 拉起）。
+     */
+    private boolean autoRestartEnabled = true;
+
+    /**
+     * 触发自动重启的连续异常次数阈值
+     */
+    private int autoRestartErrorThreshold = 3;
+
+    /**
+     * 统计窗口（ms）：窗口外会重置计数
+     */
+    private long autoRestartWindowMs = 5 * 60 * 1000L;
+
+    /**
+     * 两次自动重启最小间隔（ms），避免重启风暴
+     */
+    private long autoRestartMinIntervalMs = 60 * 1000L;
 }

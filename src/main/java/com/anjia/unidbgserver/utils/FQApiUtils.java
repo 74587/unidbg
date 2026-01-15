@@ -218,7 +218,7 @@ public Map<String, String> buildSearchParams(FqVariable var, FQSearchRequest sea
     // 搜索特定参数，全部补齐，部分可动态生成
     params.put("bookshelf_search_plan", String.valueOf(searchRequest.getBookshelfSearchPlan()));
     params.put("offset", String.valueOf(searchRequest.getOffset()));
-    params.put("from_rs", String.valueOf(searchRequest.getFromRs()));
+    params.put("from_rs", bool01(searchRequest.getFromRs()));
     params.put("user_is_login", String.valueOf(searchRequest.getUserIsLogin()));
     params.put("bookstore_tab", String.valueOf(searchRequest.getBookstoreTab()));
     params.put("query", searchRequest.getQuery()); // 中文需编码，建议提前处理
@@ -226,14 +226,14 @@ public Map<String, String> buildSearchParams(FqVariable var, FQSearchRequest sea
     params.put("search_source", String.valueOf(searchRequest.getSearchSource()));
     params.put("clicked_content", searchRequest.getClickedContent());
     params.put("search_source_id", searchRequest.getSearchSourceId());
-    params.put("use_lynx", String.valueOf(searchRequest.getUseLynx()));
-    params.put("use_correct", String.valueOf(searchRequest.getUseCorrect()));
+    params.put("use_lynx", bool01(searchRequest.getUseLynx()));
+    params.put("use_correct", bool01(searchRequest.getUseCorrect()));
     params.put("last_search_page_interval", String.valueOf(searchRequest.getLastSearchPageInterval()));
     params.put("line_words_num", String.valueOf(searchRequest.getLineWordsNum()));
     params.put("tab_name", searchRequest.getTabName());
     params.put("last_consume_interval", String.valueOf(searchRequest.getLastConsumeInterval()));
     params.put("pad_column_cover", String.valueOf(searchRequest.getPadColumnCover()));
-    params.put("is_first_enter_search", String.valueOf(searchRequest.getIsFirstEnterSearch()));
+    params.put("is_first_enter_search", bool01(searchRequest.getIsFirstEnterSearch()));
 
     // 添加search_id参数（如果存在）
     if (searchRequest.getSearchId() != null && !searchRequest.getSearchId().trim().isEmpty()) {
@@ -254,7 +254,7 @@ public Map<String, String> buildSearchParams(FqVariable var, FQSearchRequest sea
     }
 
     // 只在is_first_enter_search为true时添加client_ab_info
-    if (searchRequest.getIsFirstEnterSearch()) {
+    if (Boolean.TRUE.equals(searchRequest.getIsFirstEnterSearch())) {
         params.put("client_ab_info", searchRequest.getClientAbInfo()); // JSON需编码
     }
 
@@ -275,6 +275,10 @@ public Map<String, String> buildSearchParams(FqVariable var, FQSearchRequest sea
 
     return params;
 }
+
+    private static String bool01(Boolean value) {
+        return Boolean.TRUE.equals(value) ? "1" : "0";
+    }
 
     /**
      * 构建目录API参数
