@@ -53,6 +53,7 @@ fq:
     auto-restart-error-threshold: 3
     auto-restart-window-ms: 300000
     auto-restart-min-interval-ms: 60000
+    auto-restart-force-halt-after-ms: 10000
   api:
     base-url: https://api5-normal-sinfonlineb.fqnovel.com
 

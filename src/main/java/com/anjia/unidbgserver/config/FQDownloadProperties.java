@@ -70,4 +70,10 @@ public class FQDownloadProperties {
      * 两次自动重启最小间隔（ms），避免重启风暴
      */
     private long autoRestartMinIntervalMs = 60 * 1000L;
+
+    /**
+     * 强制退出（ms）：如果 System.exit 因 shutdown hook 卡住，超过该时间后调用 Runtime.halt 直接结束进程。
+     * 设为 0 可关闭（默认开启，避免容器无法重启）。
+     */
+    private long autoRestartForceHaltAfterMs = 10_000L;
 }

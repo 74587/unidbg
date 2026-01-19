@@ -17,10 +17,12 @@ public class AutoRestartService {
     private final AtomicInteger errorCount = new AtomicInteger(0);
     private volatile long windowStartMs = 0L;
     private volatile long lastRestartAtMs = 0L;
+    private volatile boolean restarting = false;
 
     public void recordSuccess() {
         errorCount.set(0);
         windowStartMs = 0L;
+        restarting = false;
     }
 
     public void recordFailure(String reason) {
@@ -48,16 +50,38 @@ public class AutoRestartService {
             return;
         }
         lastRestartAtMs = now;
+        if (restarting) {
+            return;
+        }
+        restarting = true;
 
         log.error("连续异常达到阈值，准备退出进程触发重启: count={}, threshold={}, reason={}", count, threshold, reason);
+        int exitCode = 2;
         new Thread(() -> {
             try {
                 Thread.sleep(1200);
             } catch (InterruptedException ignored) {
                 Thread.currentThread().interrupt();
             }
-            System.exit(2);
-        }, "auto-restart").start();
+            try {
+                System.exit(exitCode);
+            } catch (Throwable t) {
+                Runtime.getRuntime().halt(exitCode);
+            }
+        }, "auto-restart-exit").start();
+
+        long forceHaltAfterMs = Math.max(0L, downloadProperties.getAutoRestartForceHaltAfterMs());
+        if (forceHaltAfterMs > 0) {
+            new Thread(() -> {
+                try {
+                    Thread.sleep(forceHaltAfterMs);
+                } catch (InterruptedException ignored) {
+                    Thread.currentThread().interrupt();
+                }
+                // 如果 System.exit 因 shutdown hook 卡住，这里会强制结束，保证 Docker/systemd 能拉起
+                log.error("System.exit 未能在期望时间内退出，强制 halt 结束进程: exitCode={}, waitedMs={}", exitCode, forceHaltAfterMs);
+                Runtime.getRuntime().halt(exitCode);
+            }, "auto-restart-halt").start();
+        }
     }
 }
-

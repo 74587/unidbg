@@ -194,8 +194,6 @@ public class FQNovelService {
                     if (retryable) {
                         if (illegal) {
                             deviceRotationService.rotateIfNeeded("ILLEGAL_ACCESS");
-                        } else if (gzipErr || empty || nonJson) {
-                            deviceRotationService.rotateIfNeeded("UPSTREAM_EMPTY_OR_FORMAT");
                         }
                     }
 
