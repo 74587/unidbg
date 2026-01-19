@@ -3,10 +3,9 @@ package com.anjia.unidbgserver.service;
 import com.anjia.unidbgserver.config.FQApiProperties;
 import com.anjia.unidbgserver.config.FQDownloadProperties;
 import com.anjia.unidbgserver.dto.*;
-import com.anjia.unidbgserver.service.FqCrypto;
 import com.anjia.unidbgserver.utils.FQApiUtils;
+import com.anjia.unidbgserver.utils.ProcessLifecycle;
 import com.fasterxml.jackson.core.type.TypeReference;
-import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.*;
@@ -54,9 +53,6 @@ public class FQNovelService {
     private FQSearchService fqSearchService;
 
     @Resource
-    private DeviceManagementService deviceManagementService;
-
-    @Resource
     private UpstreamRateLimiter upstreamRateLimiter;
 
     @Resource
@@ -77,9 +73,6 @@ public class FQNovelService {
     @Resource(name = "applicationTaskExecutor")
     private Executor taskExecutor;
 
-    // 默认FQ变量配置
-    private FqVariable defaultFqVariable;
-
     /**
      * 获取默认FQ变量（延迟初始化）
      */
@@ -98,6 +91,10 @@ public class FQNovelService {
      */
     public CompletableFuture<FQNovelResponse<FqIBatchFullResponse>> batchFull(String itemIds, String bookId, boolean download) {
         return CompletableFuture.supplyAsync(() -> {
+            if (ProcessLifecycle.isShuttingDown()) {
+                return FQNovelResponse.error("服务正在退出中，请稍后重试");
+            }
+
             int maxAttempts = Math.max(1, downloadProperties.getMaxRetries());
             long baseDelayMs = Math.max(0L, downloadProperties.getRetryDelayMs());
             long maxDelayMs = Math.max(baseDelayMs, downloadProperties.getRetryMaxDelayMs());
@@ -176,11 +173,16 @@ public class FQNovelService {
                     boolean empty = message.contains("Empty upstream response") || message.contains("No content to map due to end-of-input");
                     boolean gzipErr = message.contains("Not in GZIP format");
                     boolean nonJson = message.contains("UPSTREAM_NON_JSON");
+                    boolean signerFail = message.contains("签名生成失败");
 
-                    boolean retryable = illegal || empty || gzipErr || nonJson;
+                    boolean retryable = illegal || empty || gzipErr || nonJson || signerFail;
                     if (!retryable || attempt >= maxAttempts) {
                         if (retryable) {
-                            autoRestartService.recordFailure(illegal ? "ILLEGAL_ACCESS" : (empty ? "UPSTREAM_EMPTY" : (gzipErr ? "UPSTREAM_GZIP" : "UPSTREAM_NON_JSON")));
+                            String reason = illegal ? "ILLEGAL_ACCESS"
+                                : (empty ? "UPSTREAM_EMPTY"
+                                : (gzipErr ? "UPSTREAM_GZIP"
+                                : (nonJson ? "UPSTREAM_NON_JSON" : "SIGNER_FAIL")));
+                            autoRestartService.recordFailure(reason);
                         }
                         if (retryable && illegal) {
                             return FQNovelResponse.error("批量获取章节内容失败: ILLEGAL_ACCESS（已重试仍失败，建议更换设备/降低频率）");
@@ -194,14 +196,27 @@ public class FQNovelService {
                         if (retryable && empty) {
                             return FQNovelResponse.error("批量获取章节内容失败: 空响应（已重试仍失败）");
                         }
+                        if (retryable && signerFail) {
+                            return FQNovelResponse.error("批量获取章节内容失败: 签名生成失败（已重试仍失败）");
+                        }
                         log.error("批量获取章节内容失败 - itemIds: {}", itemIds, e);
                         return FQNovelResponse.error("批量获取章节内容失败: " + message);
                     }
 
                     if (retryable) {
                         String rotateReason = illegal ? "ILLEGAL_ACCESS"
-                            : (empty ? "UPSTREAM_EMPTY" : (gzipErr ? "UPSTREAM_GZIP" : "UPSTREAM_NON_JSON"));
-                        deviceRotationService.rotateIfNeeded(rotateReason);
+                            : (empty ? "UPSTREAM_EMPTY"
+                            : (gzipErr ? "UPSTREAM_GZIP"
+                            : (nonJson ? "UPSTREAM_NON_JSON" : "SIGNER_FAIL")));
+
+                        if (signerFail || (empty && attempt >= 2)) {
+                            FQEncryptServiceWorker.requestGlobalReset(rotateReason);
+                        }
+                        if (illegal) {
+                            deviceRotationService.forceRotate(rotateReason);
+                        } else {
+                            deviceRotationService.rotateIfNeeded(rotateReason);
+                        }
                     }
 
                     // 指数退避 + 轻微抖动，避免并发重试打爆上游
@@ -271,87 +286,6 @@ public class FQNovelService {
         String raw = rawBody != null ? rawBody : "";
         return msg.contains("ILLEGAL_ACCESS") || raw.contains("ILLEGAL_ACCESS");
     }
-
-/*
-    public CompletableFuture<FQNovelResponse<FqIBatchFullResponse>> batchFull(String itemIds, String bookId, boolean download) {
-        return CompletableFuture.supplyAsync(() -> {
-            int maxAttempts = 1;
-            for (int attempt = 0; attempt <= maxAttempts; attempt++) {
-                try {
-                    FqVariable var = getDefaultFqVariable();
-                    String url = fqApiUtils.getBaseUrl() + "/reading/reader/batch_full/v";
-                    Map<String, String> params = fqApiUtils.buildBatchFullParams(var, itemIds, bookId, download);
-                    String fullUrl = fqApiUtils.buildUrlWithParams(url, params);
-
-                    Map<String, String> headers = fqApiUtils.buildCommonHeaders();
-                    Map<String, String> signedHeaders = fqEncryptServiceWorker.generateSignatureHeaders(fullUrl, headers).get();
-
-                    HttpHeaders httpHeaders = new HttpHeaders();
-                    signedHeaders.forEach(httpHeaders::set);
-                    headers.forEach(httpHeaders::set);
-
-                    HttpEntity<String> entity = new HttpEntity<>(httpHeaders);
-                    ResponseEntity<byte[]> response = restTemplate.exchange(fullUrl, HttpMethod.GET, entity, byte[].class);
-
-                    byte[] body = response.getBody();
-                    boolean isGzip = false;
-                    List<String> contentEncoding = response.getHeaders().get("Content-Encoding");
-                    if (contentEncoding != null) {
-                        isGzip = contentEncoding.stream().anyMatch(e -> e.toLowerCase().contains("gzip"));
-                    }
-                    // 简单判断GZIP头
-                    if (!isGzip && body != null && body.length >= 2 && body[0] == (byte)0x1f && body[1] == (byte)0x8b) {
-                        isGzip = true;
-                    }
-
-                    if (!isGzip) {
-                        // 非GZIP，解析JSON
-                        String rawBody = new String(body, StandardCharsets.UTF_8);
-                        ObjectMapper mapper = new ObjectMapper();
-                        JsonNode node = mapper.readTree(rawBody);
-                        int code = node.has("code") ? node.get("code").asInt() : -1;
-                        String message = node.has("message") ? node.get("message").asText() : "";
-                        if (code == 110 && "ILLEGAL_ACCESS".equals(message)) {
-                            log.warn("检测到ILLEGAL_ACCESS，尝试刷新registerkey，第{}次", attempt);
-                            try {
-                                registerKeyService.refreshRegisterKey();
-                            } catch (Exception e) {
-                                log.error("刷新registerkey失败", e);
-                                return FQNovelResponse.error("刷新registerkey失败: " + e.getMessage());
-                            }
-                            continue; // 重试
-                        } else {
-                            // 非非法访问，直接返回对应code和message
-                            return FQNovelResponse.error("code: " + code + ", message: " + message);
-                        }
-                    }
-
-                    // GZIP解压
-                    String responseBody = "";
-                    try (GZIPInputStream gzipInputStream = new GZIPInputStream(new ByteArrayInputStream(body))) {
-                        ByteArrayOutputStream byteArrayOutputStream = new ByteArrayOutputStream();
-                        byte[] buffer = new byte[1024];
-                        int length;
-                        while ((length = gzipInputStream.read(buffer)) != -1) {
-                            byteArrayOutputStream.write(buffer, 0, length);
-                        }
-                        responseBody = new String(byteArrayOutputStream.toByteArray(), StandardCharsets.UTF_8);
-                    } catch (Exception e) {
-                        log.error("GZIP 解压失败", e);
-                    }
-
-                    FqIBatchFullResponse batchResponse = objectMapper.readValue(responseBody, FqIBatchFullResponse.class);
-                    return FQNovelResponse.success(batchResponse);
-
-                } catch (Exception e) {
-                    log.error("批量获取章节内容失败 - itemIds: {}", itemIds, e);
-                    return FQNovelResponse.error("批量获取章节内容失败: " + e.getMessage());
-                }
-            }
-            return FQNovelResponse.error("批量获取章节内容失败: 超过最大重试次数");
-        });
-    }
-*/
 
     /**
      * 获取书籍信息 (从目录接口获取完整信息)
@@ -758,7 +692,7 @@ public class FQNovelService {
                         chapterInfo.setRawContent(decryptedContent);
                         chapterInfo.setTxtContent(txtContent);
                         chapterInfo.setWordCount(txtContent.length());
-                        chapterInfo.setIsFree(true); // 默认为免费，可以后续扩展
+                        chapterInfo.setIsFree(true);
 
                         // 使用对应的章节位置作为key（如果是章节位置模式）
                         String chapterKey;

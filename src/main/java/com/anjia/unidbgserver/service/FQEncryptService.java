@@ -3,6 +3,7 @@ package com.anjia.unidbgserver.service;
 import com.anjia.unidbgserver.config.UnidbgProperties;
 import com.anjia.unidbgserver.unidbg.IdleFQ;
 import com.anjia.unidbgserver.utils.TempFileUtils;
+import com.anjia.unidbgserver.utils.ProcessLifecycle;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.extern.slf4j.Slf4j;
@@ -62,6 +63,10 @@ public class FQEncryptService {
      */
     public Map<String, String> generateSignatureHeaders(String url, String headers) {
         try {
+            if (ProcessLifecycle.isShuttingDown()) {
+                return Collections.emptyMap();
+            }
+
             log.debug("准备生成FQ签名 - URL: {}", url);
             log.debug("准备生成FQ签名 - Headers: {}", headers);
 

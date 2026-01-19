@@ -45,9 +45,6 @@ public class FQRegisterKeyService {
     @Resource
     private ObjectMapper objectMapper;
 
-    // 默认FQ变量配置
-    private FqVariable defaultFqVariable;
-
     // 缓存的registerkey响应，按keyver分组
     private final Map<Long, FqRegisterKeyResponse> cachedRegisterKeys = new ConcurrentHashMap<>();
 

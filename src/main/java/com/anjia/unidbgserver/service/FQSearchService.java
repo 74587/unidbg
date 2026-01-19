@@ -4,6 +4,7 @@ import com.anjia.unidbgserver.config.FQApiProperties;
 import com.anjia.unidbgserver.config.FQDownloadProperties;
 import com.anjia.unidbgserver.dto.*;
 import com.anjia.unidbgserver.utils.FQApiUtils;
+import com.anjia.unidbgserver.utils.ProcessLifecycle;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.extern.slf4j.Slf4j;
@@ -59,9 +60,6 @@ public class FQSearchService {
 
     @Resource(name = "applicationTaskExecutor")
     private Executor taskExecutor;
-
-    // 默认FQ变量配置
-    private FqVariable defaultFqVariable;
 
     private Map<String, String> buildSearchHeaders() {
         Map<String, String> base = fqApiUtils.buildCommonHeaders();
@@ -196,6 +194,10 @@ public class FQSearchService {
     public CompletableFuture<FQNovelResponse<FQSearchResponse>> searchBooksEnhanced(FQSearchRequest searchRequest) {
         return CompletableFuture.supplyAsync(() -> {
             try {
+                if (ProcessLifecycle.isShuttingDown()) {
+                    return FQNovelResponse.error("服务正在退出中，请稍后重试");
+                }
+
                 // 如果用户已经提供了search_id，直接进行搜索
                 if (searchRequest.getSearchId() != null && !searchRequest.getSearchId().trim().isEmpty()) {
                     FQNovelResponse<FQSearchResponse> response = performSearchWithId(searchRequest);
@@ -541,6 +543,10 @@ public class FQSearchService {
     public CompletableFuture<FQNovelResponse<FQSearchResponse>> searchBooks(FQSearchRequest searchRequest) {
         return CompletableFuture.supplyAsync(() -> {
             try {
+                if (ProcessLifecycle.isShuttingDown()) {
+                    return FQNovelResponse.error("服务正在退出中，请稍后重试");
+                }
+
                 FqVariable var = getDefaultFqVariable();
 
                 // 构建搜索URL和参数
@@ -596,6 +602,10 @@ public class FQSearchService {
     public CompletableFuture<FQNovelResponse<FQDirectoryResponse>> getBookDirectory(FQDirectoryRequest directoryRequest) {
         return CompletableFuture.supplyAsync(() -> {
             try {
+                if (ProcessLifecycle.isShuttingDown()) {
+                    return FQNovelResponse.error("服务正在退出中，请稍后重试");
+                }
+
                 FqVariable var = getDefaultFqVariable();
 
                 // 构建目录URL和参数
@@ -704,9 +714,7 @@ public class FQSearchService {
                 item.setSortOrder(i + 1);
             }
             
-            // 默认设置免费状态（实际应从API获取，这里作为示例）
             if (item.getIsFree() == null) {
-                // 前几章通常免费，这里设置前5章免费作为示例
                 item.setIsFree(i < 5);
             }
         }

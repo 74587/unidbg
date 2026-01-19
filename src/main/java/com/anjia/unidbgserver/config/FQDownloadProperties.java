@@ -86,4 +86,19 @@ public class FQDownloadProperties {
      * 设为 0 可关闭（默认开启，避免容器无法重启）。
      */
     private long autoRestartForceHaltAfterMs = 10_000L;
+
+    /**
+     * 自动重启前的自愈开关：达到阈值时优先尝试重置 signer / 切换设备，避免频繁 System.exit。
+     */
+    private boolean autoRestartSelfHealEnabled = true;
+
+    /**
+     * 自愈冷却时间（ms）：避免异常抖动导致频繁自愈。
+     */
+    private long autoRestartSelfHealCooldownMs = 60 * 1000L;
+
+    /**
+     * 触发退出前的等待时间（ms）：用于给 in-flight 请求一个收尾窗口。
+     */
+    private long autoRestartExitDelayMs = 5_000L;
 }

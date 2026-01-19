@@ -31,10 +31,6 @@ public class DeviceGeneratorService {
     private static final List<String> CPU_ABIS = Arrays.asList("arm64-v8a", "armeabi-v7a");
     
     // ROM版本
-    private static final List<String> ROM_VERSIONS = Arrays.asList(
-        "1414", "1415", "1416", "1417", "1418", "1419", "1420"
-    );
-
     static {
         // 初始化设备品牌
         DEVICE_BRANDS.put("Xiaomi", Arrays.asList(

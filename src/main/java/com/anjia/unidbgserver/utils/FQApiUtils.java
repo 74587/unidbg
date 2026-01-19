@@ -6,7 +6,6 @@ import com.anjia.unidbgserver.dto.FqVariable;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 
-import java.io.UnsupportedEncodingException;
 import java.net.URLEncoder;
 import java.util.*;
 
