@@ -7,7 +7,6 @@ import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.*;
 
 import javax.annotation.Resource;
-import java.util.HashMap;
 import java.util.Map;
 
 @Slf4j
@@ -142,16 +141,4 @@ public class FQEncryptController {
         return result;
     }
 
-    /**
-     * 健康检查接口
-     * @return 服务状态
-     */
-    @RequestMapping(value = "health", method = {RequestMethod.GET})
-    public Map<String, Object> health() {
-        Map<String, Object> healthStatus = new HashMap<>();
-        healthStatus.put("status", "UP");
-        healthStatus.put("service", "FQ Signature Service");
-        healthStatus.put("timestamp", System.currentTimeMillis());
-        return healthStatus;
-    }
 }

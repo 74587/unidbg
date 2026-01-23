@@ -4,6 +4,7 @@ import com.anjia.unidbgserver.config.FQApiProperties;
 import com.anjia.unidbgserver.config.FQDownloadProperties;
 import com.anjia.unidbgserver.dto.*;
 import com.anjia.unidbgserver.utils.FQApiUtils;
+import com.anjia.unidbgserver.utils.GzipUtils;
 import com.anjia.unidbgserver.utils.ProcessLifecycle;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -13,15 +14,11 @@ import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestTemplate;
 
 import javax.annotation.Resource;
-import java.io.ByteArrayInputStream;
-import java.io.ByteArrayOutputStream;
 import java.net.URI;
-import java.nio.charset.StandardCharsets;
 import java.util.*;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executor;
-import java.util.zip.GZIPInputStream;
 
 /**
  * FQ书籍搜索和目录服务
@@ -469,7 +466,7 @@ public class FQSearchService {
             ResponseEntity<byte[]> response = restTemplate.exchange(uri, HttpMethod.GET, entity, byte[].class);
 
             // 解压缩 GZIP 响应体
-            String responseBody = decompressGzipResponse(response.getBody());
+            String responseBody = GzipUtils.decompressGzipResponse(response.getBody());
 
             // 解析响应
             JsonNode jsonResponse = objectMapper.readTree(responseBody);
@@ -574,7 +571,7 @@ public class FQSearchService {
                 ResponseEntity<byte[]> response = restTemplate.exchange(uri, HttpMethod.GET, entity, byte[].class);
 
                 // 解压缩 GZIP 响应体
-                String responseBody = decompressGzipResponse(response.getBody());
+                String responseBody = GzipUtils.decompressGzipResponse(response.getBody());
 
                 // 解析响应
                 JsonNode jsonResponse = objectMapper.readTree(responseBody);
@@ -634,7 +631,7 @@ public class FQSearchService {
                 ResponseEntity<byte[]> response = restTemplate.exchange(fullUrl, HttpMethod.GET, entity, byte[].class);
 
                 // 解压缩 GZIP 响应体
-                String responseBody = decompressGzipResponse(response.getBody());
+                String responseBody = GzipUtils.decompressGzipResponse(response.getBody());
 
                 JsonNode rootNode = objectMapper.readTree(responseBody);
                 if (rootNode.has("code")) {
@@ -720,36 +717,6 @@ public class FQSearchService {
         }
         
         log.debug("章节列表增强完成 - 总章节数: {}", totalChapters);
-    }
-
-    /**
-     * 解压缩GZIP响应
-     */
-    private String decompressGzipResponse(byte[] gzipData) throws Exception {
-        if (gzipData == null || gzipData.length == 0) {
-            return "";
-        }
-
-        // 有些情况下服务端会返回非 gzip（或客户端已自动解压），此时直接按 UTF-8 读取即可
-        boolean looksLikeGzip = gzipData.length >= 2
-            && (gzipData[0] == (byte) 0x1f)
-            && (gzipData[1] == (byte) 0x8b);
-        if (!looksLikeGzip) {
-            return new String(gzipData, StandardCharsets.UTF_8);
-        }
-
-        try (GZIPInputStream gzipInputStream = new GZIPInputStream(new ByteArrayInputStream(gzipData))) {
-            ByteArrayOutputStream byteArrayOutputStream = new ByteArrayOutputStream();
-            byte[] buffer = new byte[1024];
-            int length;
-            while ((length = gzipInputStream.read(buffer)) != -1) {
-                byteArrayOutputStream.write(buffer, 0, length);
-            }
-            return new String(byteArrayOutputStream.toByteArray(), StandardCharsets.UTF_8);
-        } catch (java.util.zip.ZipException e) {
-            // 兜底：不是 gzip（或已解压），直接按 UTF-8 返回
-            return new String(gzipData, StandardCharsets.UTF_8);
-        }
     }
 
     /**

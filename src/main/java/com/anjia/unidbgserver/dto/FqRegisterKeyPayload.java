@@ -1,7 +1,6 @@
 package com.anjia.unidbgserver.dto;
 
 import com.anjia.unidbgserver.service.FqCrypto;
-import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import lombok.Data;
 import lombok.NoArgsConstructor;
@@ -37,16 +36,5 @@ public class FqRegisterKeyPayload {
         FqCrypto crypto = new FqCrypto(FqCrypto.REG_KEY);
         this.content = crypto.newRegisterKeyContent(var.getServerDeviceId(), "0");
         this.keyver = 1;
-    }
-
-    /**
-     * 获取解密后的真实密钥 (前16字节)
-     * 使用新的解密算法，遵循 Python 中的 decrypt_registerkey 模式
-     *
-     * @return 十六进制密钥字符串 (前16字节)
-     */
-    @JsonIgnore
-    public String getKey() throws Exception {
-        return FqCrypto.getRealKey(this.content);
     }
 }

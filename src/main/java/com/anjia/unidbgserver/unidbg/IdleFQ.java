@@ -36,7 +36,6 @@ public class IdleFQ extends AbstractJni implements IOResolver<AndroidFileIO> {
     // 资源路径常量
     private static final String BASE_PATH = "com/dragon/read/oversea/gp";
     private static final String DEFAULT_APK_CLASSPATH = BASE_PATH + "/apk/base.apk";
-    private static final String LEGACY_APK_CLASSPATH = BASE_PATH + "/apk/番茄小说_6.8.1.32.apk";
     private static final String SO_METASEC_ML_PATH = BASE_PATH + "/lib/libmetasec_ml.so";
     private static final String SO_C_SHARE_PATH = BASE_PATH + "/lib/libc++_shared.so";
     private static final String MS_CERT_FILE_PATH = BASE_PATH + "/other/ms_16777218.bin";
@@ -187,11 +186,6 @@ public class IdleFQ extends AbstractJni implements IOResolver<AndroidFileIO> {
         File classpathApk = TempFileUtils.getTempFile(DEFAULT_APK_CLASSPATH);
         if (classpathApk != null && classpathApk.exists()) {
             return classpathApk;
-        }
-
-        File legacy = TempFileUtils.getTempFile(LEGACY_APK_CLASSPATH);
-        if (legacy != null && legacy.exists()) {
-            return legacy;
         }
 
         throw new IOException("未找到 APK：请配置 application.unidbg.apk-path（本地文件）或 application.unidbg.apk-classpath（classpath 资源）；默认查找 " + DEFAULT_APK_CLASSPATH);

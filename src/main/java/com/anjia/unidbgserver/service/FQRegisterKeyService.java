@@ -3,6 +3,7 @@ package com.anjia.unidbgserver.service;
 import com.anjia.unidbgserver.config.FQApiProperties;
 import com.anjia.unidbgserver.dto.*;
 import com.anjia.unidbgserver.utils.FQApiUtils;
+import com.anjia.unidbgserver.utils.GzipUtils;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.JsonNode;
 import lombok.extern.slf4j.Slf4j;
@@ -11,13 +12,9 @@ import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestTemplate;
 
 import javax.annotation.Resource;
-import java.io.ByteArrayInputStream;
-import java.io.ByteArrayOutputStream;
-import java.nio.charset.StandardCharsets;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.zip.GZIPInputStream;
 
 /**
  * FQNovel RegisterKey缓存服务
@@ -61,12 +58,17 @@ public class FQRegisterKeyService {
     /**
      * 获取registerkey，支持keyver比较和自动刷新
      *
-     * @param requiredKeyver 需要的keyver，如果为null则使用当前缓存的key
+     * @param requiredKeyver 需要的keyver，如果为null或<=0则使用当前缓存的key
      * @return RegisterKey响应
      */
     public synchronized FqRegisterKeyResponse getRegisterKey(Long requiredKeyver) throws Exception {
-        // 如果没有指定keyver，返回当前缓存的key
-        if (requiredKeyver == null) {
+        Long normalizedKeyver = normalizeKeyver(requiredKeyver);
+
+        // 如果没有指定有效keyver，返回当前缓存的key
+        if (normalizedKeyver == null) {
+            if (requiredKeyver != null) {
+                log.debug("收到无效keyver({})，将使用当前缓存的registerkey", requiredKeyver);
+            }
             if (currentRegisterKey != null) {
                 return currentRegisterKey;
             }
@@ -75,21 +77,28 @@ public class FQRegisterKeyService {
         }
 
         // 检查是否已经缓存了指定keyver的key
-        FqRegisterKeyResponse cached = cachedRegisterKeys.get(requiredKeyver);
+        FqRegisterKeyResponse cached = cachedRegisterKeys.get(normalizedKeyver);
         if (cached != null) {
-            log.debug("使用缓存的registerkey，keyver: {}", requiredKeyver);
+            log.debug("使用缓存的registerkey，keyver: {}", normalizedKeyver);
             return cached;
         }
 
         // 如果当前缓存的key的keyver不匹配，需要刷新
-        if (currentRegisterKey == null || currentRegisterKey.getData().getKeyver() != requiredKeyver) {
+        if (currentRegisterKey == null || currentRegisterKey.getData().getKeyver() != normalizedKeyver) {
             log.info("当前registerkey keyver ({}) 与需要的keyver ({}) 不匹配，刷新registerkey...",
                     currentRegisterKey != null ? currentRegisterKey.getData().getKeyver() : "null",
-                    requiredKeyver);
+                    normalizedKeyver);
             return refreshRegisterKey();
         }
 
         return currentRegisterKey;
+    }
+
+    private Long normalizeKeyver(Long keyver) {
+        if (keyver == null || keyver <= 0) {
+            return null;
+        }
+        return keyver;
     }
 
     /**
@@ -154,7 +163,7 @@ public class FQRegisterKeyService {
         upstreamRateLimiter.acquire();
         ResponseEntity<byte[]> response = restTemplate.exchange(fullUrl, HttpMethod.POST, entity, byte[].class);
 
-        String responseBody = decompressGzipResponse(response.getBody());
+        String responseBody = GzipUtils.decompressGzipResponse(response.getBody());
         if (log.isDebugEnabled()) {
             log.debug("registerkey原始响应: {}", responseBody.length() > 800 ? responseBody.substring(0, 800) + "..." : responseBody);
         }
@@ -173,31 +182,6 @@ public class FQRegisterKeyService {
         return parsed;
     }
 
-    private String decompressGzipResponse(byte[] gzipData) throws Exception {
-        if (gzipData == null || gzipData.length == 0) {
-            return "";
-        }
-
-        boolean looksLikeGzip = gzipData.length >= 2
-            && (gzipData[0] == (byte) 0x1f)
-            && (gzipData[1] == (byte) 0x8b);
-        if (!looksLikeGzip) {
-            return new String(gzipData, StandardCharsets.UTF_8);
-        }
-
-        try (GZIPInputStream gzipInputStream = new GZIPInputStream(new ByteArrayInputStream(gzipData))) {
-            ByteArrayOutputStream byteArrayOutputStream = new ByteArrayOutputStream();
-            byte[] buffer = new byte[1024];
-            int length;
-            while ((length = gzipInputStream.read(buffer)) != -1) {
-                byteArrayOutputStream.write(buffer, 0, length);
-            }
-            return new String(byteArrayOutputStream.toByteArray(), StandardCharsets.UTF_8);
-        } catch (java.util.zip.ZipException e) {
-            return new String(gzipData, StandardCharsets.UTF_8);
-        }
-    }
-
     /**
      * 获取指定keyver的解密密钥
      *
@@ -206,16 +190,7 @@ public class FQRegisterKeyService {
      */
     public String getDecryptionKey(Long requiredKeyver) throws Exception {
         FqRegisterKeyResponse registerKeyResponse = getRegisterKey(requiredKeyver);
-        return registerKeyResponse.getData().getKey();
-    }
-
-    /**
-     * 获取当前的解密密钥
-     *
-     * @return 解密密钥（十六进制字符串）
-     */
-    public String getCurrentDecryptionKey() throws Exception {
-        return getDecryptionKey(null);
+        return registerKeyResponse.getData().getRealKey();
     }
 
     /**

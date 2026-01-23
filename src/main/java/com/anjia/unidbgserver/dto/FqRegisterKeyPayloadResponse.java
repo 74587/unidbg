@@ -35,13 +35,7 @@ public class FqRegisterKeyPayloadResponse {
      * @return 十六进制密钥字符串 (前16字节)
      */
     @JsonIgnore
-    public String getKey() {
-        try {
-            return FqCrypto.getRealKey(this.key);
-        } catch (Exception e) {
-            // Log the error and return a default or null value
-            e.printStackTrace();
-            return null;
-        }
+    public String getRealKey() throws Exception {
+        return FqCrypto.getRealKey(this.key);
     }
 }
