@@ -5,6 +5,7 @@ import com.anjia.unidbgserver.dto.DeviceInfo;
 import com.anjia.unidbgserver.dto.FQSearchRequest;
 import com.anjia.unidbgserver.dto.FqVariable;
 import com.anjia.unidbgserver.utils.FQApiUtils;
+import com.anjia.unidbgserver.utils.GzipUtils;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
@@ -17,19 +18,14 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.client.RestTemplate;
 
 import javax.annotation.PostConstruct;
-import java.io.ByteArrayInputStream;
-import java.io.ByteArrayOutputStream;
-import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
 import java.util.LinkedHashMap;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.locks.ReentrantLock;
-import java.util.zip.GZIPInputStream;
 import java.net.URI;
 
 /**
@@ -193,7 +189,7 @@ public class FQDeviceRotationService {
             HttpEntity<String> entity = new HttpEntity<>(httpHeaders);
 
             ResponseEntity<byte[]> response = restTemplate.exchange(URI.create(fullUrl), HttpMethod.GET, entity, byte[].class);
-            String body = decodeUpstreamResponse(response);
+            String body = GzipUtils.decodeUpstreamResponse(response);
             if (body == null) {
                 return false;
             }
@@ -264,45 +260,6 @@ public class FQDeviceRotationService {
             }
         }
         return "";
-    }
-
-    private String decodeUpstreamResponse(ResponseEntity<byte[]> response) {
-        if (response == null) {
-            return "";
-        }
-        byte[] body = response.getBody();
-        if (body == null || body.length == 0) {
-            return "";
-        }
-
-        boolean isGzip = false;
-        List<String> enc = response.getHeaders() != null ? response.getHeaders().get("Content-Encoding") : null;
-        if (enc != null) {
-            for (String e : enc) {
-                if (e != null && e.toLowerCase(Locale.ROOT).contains("gzip")) {
-                    isGzip = true;
-                    break;
-                }
-            }
-        }
-        if (!isGzip && body.length >= 2 && body[0] == (byte) 0x1f && body[1] == (byte) 0x8b) {
-            isGzip = true;
-        }
-        if (!isGzip) {
-            return new String(body, StandardCharsets.UTF_8);
-        }
-
-        try (GZIPInputStream gzipInputStream = new GZIPInputStream(new ByteArrayInputStream(body))) {
-            ByteArrayOutputStream out = new ByteArrayOutputStream();
-            byte[] buffer = new byte[1024];
-            int length;
-            while ((length = gzipInputStream.read(buffer)) != -1) {
-                out.write(buffer, 0, length);
-            }
-            return new String(out.toByteArray(), StandardCharsets.UTF_8);
-        } catch (Exception e) {
-            return new String(body, StandardCharsets.UTF_8);
-        }
     }
 
     /**

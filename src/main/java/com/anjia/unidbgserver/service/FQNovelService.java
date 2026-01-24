@@ -2,8 +2,10 @@ package com.anjia.unidbgserver.service;
 
 import com.anjia.unidbgserver.config.FQApiProperties;
 import com.anjia.unidbgserver.config.FQDownloadProperties;
+import com.anjia.unidbgserver.constants.FQConstants;
 import com.anjia.unidbgserver.dto.*;
 import com.anjia.unidbgserver.utils.FQApiUtils;
+import com.anjia.unidbgserver.utils.GzipUtils;
 import com.anjia.unidbgserver.utils.ProcessLifecycle;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -13,10 +15,6 @@ import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestTemplate;
 
 import javax.annotation.Resource;
-import java.io.ByteArrayInputStream;
-import java.io.ByteArrayOutputStream;
-import java.nio.charset.StandardCharsets;
-import java.util.Locale;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -27,7 +25,6 @@ import java.util.concurrent.Executor;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
-import java.util.zip.GZIPInputStream;
 
 /**
  * FQNovel 小说内容获取服务
@@ -126,7 +123,7 @@ public class FQNovelService {
                     HttpEntity<String> entity = new HttpEntity<>(httpHeaders);
                     ResponseEntity<byte[]> response = restTemplate.exchange(fullUrl, HttpMethod.GET, entity, byte[].class);
 
-                    String responseBody = decodeUpstreamResponse(response);
+                    String responseBody = GzipUtils.decodeUpstreamResponse(response);
 
                     // 如果响应体为空，视为需要更换设备并重试
                     String trimmedBody = responseBody.trim();
@@ -233,49 +230,6 @@ public class FQNovelService {
             }
             return FQNovelResponse.error("批量获取章节内容失败: 超过最大重试次数");
         }, taskExecutor);
-    }
-
-    private String decodeUpstreamResponse(ResponseEntity<byte[]> response) {
-        if (response == null) {
-            return "";
-        }
-        byte[] body = response.getBody();
-        if (body == null || body.length == 0) {
-            return "";
-        }
-
-        boolean isGzip = false;
-        List<String> enc = response.getHeaders() != null ? response.getHeaders().get("Content-Encoding") : null;
-        if (enc != null) {
-            for (String e : enc) {
-                if (e != null && e.toLowerCase(Locale.ROOT).contains("gzip")) {
-                    isGzip = true;
-                    break;
-                }
-            }
-        }
-        if (!isGzip && body.length >= 2 && body[0] == (byte) 0x1f && body[1] == (byte) 0x8b) {
-            isGzip = true;
-        }
-
-        if (!isGzip) {
-            return new String(body, StandardCharsets.UTF_8);
-        }
-
-        try (GZIPInputStream gzipInputStream = new GZIPInputStream(new ByteArrayInputStream(body))) {
-            ByteArrayOutputStream byteArrayOutputStream = new ByteArrayOutputStream();
-            byte[] buffer = new byte[1024];
-            int length;
-            while ((length = gzipInputStream.read(buffer)) != -1) {
-                byteArrayOutputStream.write(buffer, 0, length);
-            }
-            return new String(byteArrayOutputStream.toByteArray(), StandardCharsets.UTF_8);
-        } catch (java.util.zip.ZipException e) {
-            // 上游偶尔会返回非 gzip 内容但误标为 gzip，兜底为原始文本，避免 NPE/异常刷屏
-            return new String(body, StandardCharsets.UTF_8);
-        } catch (Exception e) {
-            return new String(body, StandardCharsets.UTF_8);
-        }
     }
 
     private static boolean isIllegalAccess(long code, String message, String rawBody) {
@@ -586,9 +540,11 @@ public class FQNovelService {
                         return FQNovelResponse.error("无效的章节范围格式");
                     }
 
-                    // 验证章节数量限制 (1-30)
-                    if (chapterIds.size() < 1 || chapterIds.size() > 30) {
-                        return FQNovelResponse.error("章节数量必须在1-30之间，当前请求: " + chapterIds.size());
+                    // 验证章节数量限制
+                    if (chapterIds.size() < FQConstants.Chapter.MIN_BATCH_SIZE 
+                        || chapterIds.size() > FQConstants.Chapter.MAX_BATCH_SIZE) {
+                        return FQNovelResponse.error("章节数量必须在" + FQConstants.Chapter.MIN_BATCH_SIZE 
+                            + "-" + FQConstants.Chapter.MAX_BATCH_SIZE + "之间，当前请求: " + chapterIds.size());
                     }
 
                     if (isChapterPositions(chapterIds)) {
@@ -781,11 +737,11 @@ public class FQNovelService {
             return false;
         }
 
-        // 检查所有ID是否都是小的正整数（通常章节位置不会超过10000）
+        // 检查所有ID是否都是小的正整数（通常章节位置不会超过配置的最大值）
         for (String id : ids) {
             try {
                 int num = Integer.parseInt(id);
-                if (num <= 0 || num > 10000) {
+                if (num <= 0 || num > FQConstants.Chapter.MAX_CHAPTER_POSITION) {
                     return false;
                 }
             } catch (NumberFormatException e) {

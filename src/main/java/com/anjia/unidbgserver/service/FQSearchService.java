@@ -2,6 +2,7 @@ package com.anjia.unidbgserver.service;
 
 import com.anjia.unidbgserver.config.FQApiProperties;
 import com.anjia.unidbgserver.config.FQDownloadProperties;
+import com.anjia.unidbgserver.constants.FQConstants;
 import com.anjia.unidbgserver.dto.*;
 import com.anjia.unidbgserver.utils.FQApiUtils;
 import com.anjia.unidbgserver.utils.GzipUtils;
@@ -293,9 +294,12 @@ public class FQSearchService {
 
                 String searchId = firstSearchId;
 
-                // 随机延迟 1-2 秒
+                // 随机延迟（模拟真实用户行为）
                 try {
-                    long delay = ThreadLocalRandom.current().nextLong(1000, 2001); // 1000-2000ms
+                    long delay = ThreadLocalRandom.current().nextLong(
+                        FQConstants.Search.MIN_SEARCH_DELAY_MS, 
+                        FQConstants.Search.MAX_SEARCH_DELAY_MS + 1
+                    );
                     Thread.sleep(delay);
                     searchRequest.setLastSearchPageInterval((int) delay); // 设置间隔时间
                 } catch (InterruptedException e) {
@@ -450,7 +454,7 @@ public class FQSearchService {
             // 生成签名
             Map<String, String> signedHeaders = fqEncryptServiceWorker.generateSignatureHeaders(fullUrl, headers).get();
             if (signedHeaders == null || signedHeaders.isEmpty()) {
-                log.warn("签名生成失败，终止请求 - url: {}", fullUrl);
+                log.error("签名生成失败，终止请求 - url: {}", fullUrl);
                 return FQNovelResponse.error("签名生成失败");
             }
 
@@ -617,7 +621,7 @@ public class FQSearchService {
                 // 生成签名
                 Map<String, String> signedHeaders = fqEncryptServiceWorker.generateSignatureHeaders(fullUrl, headers).get();
                 if (signedHeaders == null || signedHeaders.isEmpty()) {
-                    log.warn("签名生成失败，终止目录请求 - url: {}", fullUrl);
+                    log.error("签名生成失败，终止目录请求 - url: {}", fullUrl);
                     return FQNovelResponse.error("签名生成失败");
                 }
 
