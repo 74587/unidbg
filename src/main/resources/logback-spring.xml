@@ -32,6 +32,8 @@
     <logger name="org.apache" level="WARN"/>
     <logger name="org.apache.kafka" level="INFO"/>
     <logger name="org.apache.catalina.startup.DigesterFactory" level="OFF"/>
+    <!-- 客户端断开连接是正常现象，不记录 ERROR 堆栈 -->
+    <logger name="org.apache.catalina.core.ContainerBase.[Tomcat].[localhost]" level="OFF"/>
     <logger name="org.bson" level="WARN"/>
     <logger name="org.elasticsearch" level="WARN"/>
     <logger name="org.hibernate.validator" level="WARN"/>
