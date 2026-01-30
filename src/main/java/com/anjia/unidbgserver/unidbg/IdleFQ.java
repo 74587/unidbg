@@ -200,7 +200,6 @@ public class IdleFQ extends AbstractJni implements IOResolver<AndroidFileIO> {
         if (!tempDir.mkdirs()) {
             throw new IOException("无法创建临时目录: " + tempDir);
         }
-        tempDir.deleteOnExit();
         return tempDir;
     }
 
@@ -492,6 +491,36 @@ public class IdleFQ extends AbstractJni implements IOResolver<AndroidFileIO> {
             } catch (Exception e) {
                 log.error("关闭模拟器失败", e);
             }
+        }
+
+        // 高频 reset 时 rootfs 目录会在 /tmp 迅速累积；这里主动清理，避免容器磁盘被占满。
+        try {
+            deleteRecursively(tempRootfsDir);
+        } catch (Exception e) {
+            if (loggable) {
+                log.debug("清理临时 rootfs 目录失败: {}", tempRootfsDir != null ? tempRootfsDir.getAbsolutePath() : null, e);
+            }
+        } finally {
+            tempRootfsDir = null;
+        }
+    }
+
+    private void deleteRecursively(File file) {
+        if (file == null || !file.exists()) {
+            return;
+        }
+        if (file.isDirectory()) {
+            File[] children = file.listFiles();
+            if (children != null) {
+                for (File child : children) {
+                    deleteRecursively(child);
+                }
+            }
+        }
+        try {
+            Files.deleteIfExists(file.toPath());
+        } catch (Exception ignored) {
+            // ignore
         }
     }
 }

@@ -1,6 +1,7 @@
 package com.anjia.unidbgserver.service;
 
 import com.anjia.unidbgserver.config.UnidbgProperties;
+import com.anjia.unidbgserver.utils.ProcessLifecycle;
 import com.github.unidbg.worker.Worker;
 import com.github.unidbg.worker.WorkerPool;
 import com.github.unidbg.worker.WorkerPoolFactory;
@@ -14,12 +15,15 @@ import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.locks.LockSupport;
 
 @Slf4j
 @Service("fqEncryptWorker")
 public class FQEncryptServiceWorker extends Worker {
 
     private static final AtomicLong RESET_EPOCH = new AtomicLong(0L);
+    private static final AtomicLong LAST_RESET_REQUEST_AT_MS = new AtomicLong(0L);
+    private static volatile long RESET_COOLDOWN_MS = 2000L;
 
     private UnidbgProperties unidbgProperties;
     private WorkerPool pool;
@@ -29,6 +33,9 @@ public class FQEncryptServiceWorker extends Worker {
     @Autowired
     public void init(UnidbgProperties unidbgProperties) {
         this.unidbgProperties = unidbgProperties;
+        if (unidbgProperties != null) {
+            RESET_COOLDOWN_MS = Math.max(0L, unidbgProperties.getResetCooldownMs());
+        }
     }
 
     public FQEncryptServiceWorker() {
@@ -44,6 +51,9 @@ public class FQEncryptServiceWorker extends Worker {
                                     @Value("${spring.task.execution.pool.core-size:4}") int poolSize) {
         super(WorkerPoolFactory.create(FQEncryptServiceWorker::new, Runtime.getRuntime().availableProcessors()));
         this.unidbgProperties = unidbgProperties;
+        if (unidbgProperties != null) {
+            RESET_COOLDOWN_MS = Math.max(0L, unidbgProperties.getResetCooldownMs());
+        }
         if (this.unidbgProperties.isAsync()) {
             pool = WorkerPoolFactory.create(pool -> new FQEncryptServiceWorker(unidbgProperties.isDynarmic(),
                 unidbgProperties.isVerbose(), unidbgProperties.getApkPath(), unidbgProperties.getApkClasspath(), pool), Math.max(poolSize, 4));
@@ -65,6 +75,20 @@ public class FQEncryptServiceWorker extends Worker {
     }
 
     public static long requestGlobalReset(String reason) {
+        if (ProcessLifecycle.isShuttingDown()) {
+            return RESET_EPOCH.get();
+        }
+
+        long now = System.currentTimeMillis();
+        long cooldown = RESET_COOLDOWN_MS;
+        if (cooldown > 0) {
+            long last = LAST_RESET_REQUEST_AT_MS.get();
+            if (last > 0 && now - last < cooldown) {
+                return RESET_EPOCH.get();
+            }
+            LAST_RESET_REQUEST_AT_MS.set(now);
+        }
+
         long epoch = RESET_EPOCH.incrementAndGet();
         log.warn("请求重置 FQ signer（unidbg）: epoch={}, reason={}", epoch, reason);
         return epoch;
@@ -86,6 +110,7 @@ public class FQEncryptServiceWorker extends Worker {
             // 异步模式使用工作池
             while (true) {
                 if ((worker = pool.borrow(2, TimeUnit.SECONDS)) == null) {
+                    LockSupport.parkNanos(TimeUnit.MILLISECONDS.toNanos(50));
                     continue;
                 }
                 result = worker.doWork(url, headers);
@@ -118,6 +143,7 @@ public class FQEncryptServiceWorker extends Worker {
             // 异步模式使用工作池
             while (true) {
                 if ((worker = pool.borrow(2, TimeUnit.SECONDS)) == null) {
+                    LockSupport.parkNanos(TimeUnit.MILLISECONDS.toNanos(50));
                     continue;
                 }
                 result = worker.doWorkWithMap(url, headerMap);
@@ -151,6 +177,9 @@ public class FQEncryptServiceWorker extends Worker {
     }
 
     private void ensureResetUpToDate() {
+        if (ProcessLifecycle.isShuttingDown()) {
+            return;
+        }
         long epoch = RESET_EPOCH.get();
         if (epoch == localResetEpoch) {
             return;

@@ -33,6 +33,10 @@ public class FQEncryptService {
     }
 
     public void reset(String reason) {
+        if (ProcessLifecycle.isShuttingDown()) {
+            log.warn("进程退出中，跳过 FQ signer reset: reason={}", reason);
+            return;
+        }
         lock.lock();
         try {
             IdleFQ old = this.idleFQ;

@@ -97,6 +97,20 @@ public class FQApiProperties {
      */
     private long deviceRotateCooldownMs = 30_000L;
 
+    /**
+     * registerkey 缓存最大条数（默认 32）。
+     * <p>
+     * keyver 可能随时间变化；无界缓存会导致长期运行内存增长。
+     */
+    private int registerKeyCacheMaxEntries = 32;
+
+    /**
+     * registerkey 缓存 TTL（ms，默认 60 分钟）。
+     * <p>
+     * 避免长时间持有过期 keyver；下次请求会自动刷新。
+     */
+    private long registerKeyCacheTtlMs = 60 * 60 * 1000L;
+
     @Data
     public static class DeviceProfile {
         /**

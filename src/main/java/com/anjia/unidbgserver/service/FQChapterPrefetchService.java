@@ -90,7 +90,13 @@ public class FQChapterPrefetchService {
                 return FQNovelResponse.success(info);
 
             } catch (Exception e) {
-                log.error("单章获取失败 - bookId: {}, chapterId: {}", request.getBookId(), request.getChapterId(), e);
+                String msg = e.getMessage() != null ? e.getMessage() : e.toString();
+                if (msg.contains("Encrypted data too short") || msg.contains("章节内容为空/过短") || msg.contains("upstream item code=")) {
+                    log.warn("单章获取失败 - bookId: {}, chapterId: {}, reason={}", request.getBookId(), request.getChapterId(), msg);
+                    log.debug("单章获取失败详情 - bookId: {}, chapterId: {}", request.getBookId(), request.getChapterId(), e);
+                } else {
+                    log.error("单章获取失败 - bookId: {}, chapterId: {}", request.getBookId(), request.getChapterId(), e);
+                }
                 return FQNovelResponse.error("获取章节内容失败: " + (e.getMessage() != null ? e.getMessage() : e.toString()));
             }
         }, executor != null ? executor : ForkJoinPool.commonPool());
@@ -246,10 +252,25 @@ public class FQChapterPrefetchService {
     }
 
     private FQNovelChapterInfo buildChapterInfo(String bookId, String chapterId, ItemContent itemContent) throws Exception {
+        if (itemContent == null) {
+            throw new IllegalArgumentException("章节内容为空");
+        }
+        if (itemContent.getCode() != 0) {
+            throw new IllegalStateException("upstream item code=" + itemContent.getCode());
+        }
+        String encrypted = itemContent.getContent();
+        if (encrypted == null || encrypted.trim().isEmpty()) {
+            throw new IllegalArgumentException("章节内容为空/过短");
+        }
+        // Base64(16 bytes iv + ...) 的最短长度约为 24（含 padding）；过短通常是上游返回了异常内容
+        if (encrypted.trim().length() < 24) {
+            throw new IllegalArgumentException("章节内容为空/过短");
+        }
+
         String decryptedContent;
         Long contentKeyver = itemContent.getKeyVersion();
         String key = registerKeyService.getDecryptionKey(contentKeyver);
-        decryptedContent = FqCrypto.decryptAndDecompressContent(itemContent.getContent(), key);
+        decryptedContent = FqCrypto.decryptAndDecompressContent(encrypted, key);
 
         String txtContent = extractTextFromHtml(decryptedContent);
 

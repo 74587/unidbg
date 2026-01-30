@@ -13,8 +13,8 @@ import org.springframework.web.client.RestTemplate;
 
 import javax.annotation.Resource;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * FQNovel RegisterKey缓存服务
@@ -43,7 +43,7 @@ public class FQRegisterKeyService {
     private ObjectMapper objectMapper;
 
     // 缓存的registerkey响应，按keyver分组
-    private final Map<Long, FqRegisterKeyResponse> cachedRegisterKeys = new ConcurrentHashMap<>();
+    private final LinkedHashMap<Long, CacheEntry> cachedRegisterKeys = new LinkedHashMap<>(64, 0.75f, true);
 
     // 当前默认的registerkey响应
     private volatile FqRegisterKeyResponse currentRegisterKey;
@@ -77,8 +77,8 @@ public class FQRegisterKeyService {
         }
 
         // 检查是否已经缓存了指定keyver的key
-        FqRegisterKeyResponse cached = cachedRegisterKeys.get(normalizedKeyver);
-        if (cached != null) {
+        FqRegisterKeyResponse cached = getCachedIfPresent(normalizedKeyver);
+        if (cached != null && cached.getData() != null) {
             log.debug("使用缓存的registerkey，keyver: {}", normalizedKeyver);
             return cached;
         }
@@ -112,7 +112,7 @@ public class FQRegisterKeyService {
 
         if (response != null && response.getData() != null) {
             long keyver = response.getData().getKeyver();
-            cachedRegisterKeys.put(keyver, response);
+            putCache(keyver, response);
             currentRegisterKey = response;
             log.info("registerkey刷新成功，新keyver: {}", keyver);
             return response;
@@ -197,8 +197,10 @@ public class FQRegisterKeyService {
      * 清除缓存
      */
     public void clearCache() {
-        cachedRegisterKeys.clear();
-        currentRegisterKey = null;
+        synchronized (this) {
+            cachedRegisterKeys.clear();
+            currentRegisterKey = null;
+        }
         log.info("registerkey缓存已清除");
     }
 
@@ -206,10 +208,50 @@ public class FQRegisterKeyService {
      * 获取缓存状态信息
      */
     public Map<String, Object> getCacheStatus() {
-        Map<String, Object> status = new HashMap<>();
-        status.put("cachedKeyversCount", cachedRegisterKeys.size());
-        status.put("cachedKeyvers", cachedRegisterKeys.keySet());
-        status.put("currentKeyver", currentRegisterKey != null ? currentRegisterKey.getData().getKeyver() : null);
-        return status;
+        synchronized (this) {
+            Map<String, Object> status = new HashMap<>();
+            status.put("cachedKeyversCount", cachedRegisterKeys.size());
+            status.put("cachedKeyvers", cachedRegisterKeys.keySet());
+            status.put("currentKeyver", currentRegisterKey != null && currentRegisterKey.getData() != null ? currentRegisterKey.getData().getKeyver() : null);
+            status.put("cacheMaxEntries", Math.max(1, fqApiProperties.getRegisterKeyCacheMaxEntries()));
+            status.put("cacheTtlMs", Math.max(0L, fqApiProperties.getRegisterKeyCacheTtlMs()));
+            return status;
+        }
+    }
+
+    private FqRegisterKeyResponse getCachedIfPresent(Long keyver) {
+        CacheEntry entry = cachedRegisterKeys.get(keyver);
+        if (entry == null) {
+            return null;
+        }
+        long ttlMs = Math.max(0L, fqApiProperties.getRegisterKeyCacheTtlMs());
+        if (ttlMs > 0 && entry.expiresAtMs < System.currentTimeMillis()) {
+            cachedRegisterKeys.remove(keyver);
+            return null;
+        }
+        return entry.value;
+    }
+
+    private void putCache(long keyver, FqRegisterKeyResponse value) {
+        long ttlMs = Math.max(0L, fqApiProperties.getRegisterKeyCacheTtlMs());
+        long expiresAt = ttlMs <= 0 ? Long.MAX_VALUE : (System.currentTimeMillis() + ttlMs);
+        cachedRegisterKeys.put(keyver, new CacheEntry(value, expiresAt));
+
+        int maxEntries = Math.max(1, fqApiProperties.getRegisterKeyCacheMaxEntries());
+        // LRU 淘汰（LinkedHashMap access-order）
+        while (cachedRegisterKeys.size() > maxEntries) {
+            Long eldestKey = cachedRegisterKeys.keySet().iterator().next();
+            cachedRegisterKeys.remove(eldestKey);
+        }
+    }
+
+    private static final class CacheEntry {
+        private final FqRegisterKeyResponse value;
+        private final long expiresAtMs;
+
+        private CacheEntry(FqRegisterKeyResponse value, long expiresAtMs) {
+            this.value = value;
+            this.expiresAtMs = expiresAtMs;
+        }
     }
 }
