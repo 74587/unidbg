@@ -56,6 +56,9 @@ public class FQSearchService {
     @Resource
     private ObjectMapper objectMapper;
 
+    @Resource
+    private FQSearchRequestEnricher searchRequestEnricher;
+
     @Resource(name = "applicationTaskExecutor")
     private Executor taskExecutor;
 
@@ -95,6 +98,29 @@ public class FQSearchService {
         if (value == null) return "";
         if (value.length() <= maxLen) return value;
         return value.substring(0, Math.max(0, maxLen)) + "...";
+    }
+
+    private static Boolean boolFromNode(JsonNode node) {
+        if (node == null || node.isMissingNode() || node.isNull()) {
+            return null;
+        }
+        if (node.isBoolean()) {
+            return node.booleanValue();
+        }
+        if (node.isNumber()) {
+            return node.intValue() != 0;
+        }
+        String s = node.asText("").trim();
+        if (s.isEmpty() || "null".equalsIgnoreCase(s)) {
+            return null;
+        }
+        if ("1".equals(s) || "true".equalsIgnoreCase(s)) {
+            return true;
+        }
+        if ("0".equals(s) || "false".equalsIgnoreCase(s)) {
+            return false;
+        }
+        return null;
     }
 
     private static boolean hasBooks(FQNovelResponse<FQSearchResponse> response) {
@@ -195,6 +221,8 @@ public class FQSearchService {
                 if (ProcessLifecycle.isShuttingDown()) {
                     return FQNovelResponse.error("服务正在退出中，请稍后重试");
                 }
+
+                searchRequestEnricher.enrich(searchRequest);
 
                 // 如果用户已经提供了search_id，直接进行搜索
                 if (searchRequest.getSearchId() != null && !searchRequest.getSearchId().trim().isEmpty()) {
@@ -427,6 +455,8 @@ public class FQSearchService {
         // 确保is_first_enter_search为false，不包含client_ab_info
         searchRequest.setIsFirstEnterSearch(false);
 
+        searchRequestEnricher.enrich(searchRequest);
+
         // 确保passback与offset相同
         if (searchRequest.getPassback() == null) {
             searchRequest.setPassback(searchRequest.getOffset());
@@ -547,6 +577,8 @@ public class FQSearchService {
                 if (ProcessLifecycle.isShuttingDown()) {
                     return FQNovelResponse.error("服务正在退出中，请稍后重试");
                 }
+
+                searchRequestEnricher.enrich(searchRequest);
 
                 FqVariable var = getDefaultFqVariable();
 
@@ -746,9 +778,11 @@ public class FQSearchService {
         }
 
         // search_tabs 是数组
+        boolean matchedTab = false;
         if (searchTabs != null && searchTabs.isArray()) {
             for (JsonNode tab : searchTabs) {
                 if (tab.has("tab_type") && tab.get("tab_type").asInt() == tabType) {
+                    matchedTab = true;
                     List<FQSearchResponse.BookItem> books = new ArrayList<>();
                     JsonNode tabData = tab.get("data");
                     if (tabData != null && tabData.isArray()) {
@@ -759,6 +793,13 @@ public class FQSearchService {
                                     books.add(parseBookItem(bookNode));
                                 }
                             }
+                        }
+                    }
+                    // 某些场景下可能直接返回 tab.books
+                    JsonNode directBooks = tab.get("books");
+                    if ((books == null || books.isEmpty()) && directBooks != null && directBooks.isArray()) {
+                        for (JsonNode bookNode : directBooks) {
+                            books.add(parseBookItem(bookNode));
                         }
                     }
                     searchResponse.setBooks(books);
@@ -791,6 +832,84 @@ public class FQSearchService {
                     searchResponse.setSearchId(tabSearchId);
 
                     break;
+                }
+            }
+        }
+
+        // 兜底：如果没有匹配到 tabType，但 tabs 中存在可用书籍数据，优先取第一个有书籍的 tab，避免误判为“无结果/风控”
+        if (!matchedTab && (searchResponse.getBooks() == null || searchResponse.getBooks().isEmpty()) && searchTabs != null && searchTabs.isArray()) {
+            for (JsonNode tab : searchTabs) {
+                List<FQSearchResponse.BookItem> books = new ArrayList<>();
+
+                JsonNode tabData = tab.get("data");
+                if (tabData != null && tabData.isArray()) {
+                    for (JsonNode cell : tabData) {
+                        JsonNode bookData = cell.get("book_data");
+                        if (bookData != null && bookData.isArray()) {
+                            for (JsonNode bookNode : bookData) {
+                                books.add(parseBookItem(bookNode));
+                            }
+                        }
+                    }
+                }
+                JsonNode directBooks = tab.get("books");
+                if (books.isEmpty() && directBooks != null && directBooks.isArray()) {
+                    for (JsonNode bookNode : directBooks) {
+                        books.add(parseBookItem(bookNode));
+                    }
+                }
+
+                if (!books.isEmpty()) {
+                    searchResponse.setBooks(books);
+                    if (searchResponse.getTotal() == null) {
+                        searchResponse.setTotal(tab.path("total").asInt(books.size()));
+                    }
+                    if (searchResponse.getHasMore() == null) {
+                        Boolean hm = boolFromNode(tab.path("has_more"));
+                        searchResponse.setHasMore(Boolean.TRUE.equals(hm));
+                    }
+                    if (isBlank(searchResponse.getSearchId())) {
+                        String tabSearchId = firstNonBlank(
+                            tab.path("search_id").asText(""),
+                            tab.path("searchId").asText(""),
+                            tab.path("search_id_str").asText("")
+                        );
+                        searchResponse.setSearchId(tabSearchId);
+                    }
+                    break;
+                }
+            }
+        }
+
+        // 兜底：部分接口/场景可能直接返回 data.books（没有 search_tabs），避免解析不到 books 导致误判为“无结果/风控”
+        if (searchResponse.getBooks() == null || searchResponse.getBooks().isEmpty()) {
+            JsonNode booksNode = null;
+            if (dataNode != null && dataNode.path("books").isArray()) {
+                booksNode = dataNode.path("books");
+            } else if (jsonResponse != null && jsonResponse.path("books").isArray()) {
+                booksNode = jsonResponse.path("books");
+            }
+
+            if (booksNode != null && booksNode.isArray()) {
+                List<FQSearchResponse.BookItem> books = new ArrayList<>();
+                for (JsonNode bookNode : booksNode) {
+                    books.add(parseBookItem(bookNode));
+                }
+                searchResponse.setBooks(books);
+
+                if (searchResponse.getTotal() == null) {
+                    int total = dataNode != null ? dataNode.path("total").asInt(books.size()) : books.size();
+                    searchResponse.setTotal(total);
+                }
+                if (searchResponse.getHasMore() == null) {
+                    Boolean hasMore = null;
+                    if (dataNode != null) {
+                        hasMore = boolFromNode(dataNode.path("has_more"));
+                        if (hasMore == null) {
+                            hasMore = boolFromNode(dataNode.path("hasMore"));
+                        }
+                    }
+                    searchResponse.setHasMore(Boolean.TRUE.equals(hasMore));
                 }
             }
         }
@@ -837,7 +956,7 @@ public class FQSearchService {
         book.setDetailPageThumbUrl(bookNode.path("detail_page_thumb_url").asText(""));
         book.setExpandThumbUrl(bookNode.path("expand_thumb_url").asText(""));
         book.setHorizThumbUrl(bookNode.path("horiz_thumb_url").asText(""));
-        book.setStatus(bookNode.path("status").asText(""));
+        book.setStatus(bookNode.path("status").asInt(0));
         book.setCreationStatus(bookNode.path("creation_status").asText(""));
         book.setUpdateStatus(bookNode.path("update_status").asText(""));
         
@@ -846,17 +965,9 @@ public class FQSearchService {
         
         // 尝试从不同字段获取章节总数
         if (bookNode.has("serial_count")) {
-            try {
-                book.setTotalChapters(Integer.parseInt(bookNode.path("serial_count").asText("0")));
-            } catch (NumberFormatException e) {
-                book.setTotalChapters(0);
-            }
+            book.setTotalChapters(bookNode.path("serial_count").asInt(0));
         } else if (bookNode.has("content_chapter_number")) {
-            try {
-                book.setTotalChapters(Integer.parseInt(bookNode.path("content_chapter_number").asText("0")));
-            } catch (NumberFormatException e) {
-                book.setTotalChapters(0);
-            }
+            book.setTotalChapters(bookNode.path("content_chapter_number").asInt(0));
         }
         
         book.setFirstChapterTitle(bookNode.path("first_chapter_title").asText(""));
@@ -893,17 +1004,17 @@ public class FQSearchService {
         
         // ============ 统计数据 ============
         book.setRating(bookNode.path("score").asDouble(0.0));
-        book.setReadCount(bookNode.path("read_count").asText(""));
+        book.setReadCount(bookNode.path("read_count").asLong(0L));
         book.setReadCntText(bookNode.path("read_cnt_text").asText(""));
-        book.setAddBookshelfCount(bookNode.path("add_bookshelf_count").asText(""));
-        book.setReaderUv14day(bookNode.path("reader_uv_14day").asText(""));
-        book.setListenCount(bookNode.path("listen_count").asText(""));
-        book.setFinishRate10(bookNode.path("finish_rate_10").asText(""));
+        book.setAddBookshelfCount(bookNode.path("add_bookshelf_count").asLong(0L));
+        book.setReaderUv14day(bookNode.path("reader_uv_14day").asLong(0L));
+        book.setListenCount(bookNode.path("listen_count").asLong(0L));
+        book.setFinishRate10(bookNode.path("finish_rate_10").asDouble(0.0));
         
         // ============ 价格与销售 ============
-        book.setTotalPrice(bookNode.path("total_price").asText(""));
-        book.setBasePrice(bookNode.path("base_price").asText(""));
-        book.setDiscountPrice(bookNode.path("discount_price").asText(""));
+        book.setTotalPrice(bookNode.path("total_price").asLong(0L));
+        book.setBasePrice(bookNode.path("base_price").asLong(0L));
+        book.setDiscountPrice(bookNode.path("discount_price").asLong(0L));
         book.setFreeStatus(bookNode.path("free_status").asText(""));
         book.setVipBook(bookNode.path("vip_book").asText(""));
         
@@ -917,16 +1028,16 @@ public class FQSearchService {
         book.setColorMostPopular(bookNode.path("color_most_popular").asText(""));
         book.setThumbUri(bookNode.path("thumb_uri").asText(""));
         
-        // ============ 时间信息 ============
-        book.setCreateTime(bookNode.path("create_time").asText(""));
-        book.setPublishedDate(bookNode.path("published_date").asText(""));
-        book.setLastPublishTime(bookNode.path("last_publish_time").asText(""));
-        book.setFirstOnlineTime(bookNode.path("first_online_time").asText(""));
+	        // ============ 时间信息 ============
+	        book.setCreateTime(bookNode.path("create_time").asLong(0L));
+	        book.setPublishedDate(bookNode.path("published_date").asText(""));
+	        book.setLastPublishTime(bookNode.path("last_publish_time").asLong(0L));
+	        book.setFirstOnlineTime(bookNode.path("first_online_time").asLong(0L));
         
         // ============ 书籍类型 ============
         book.setBookType(bookNode.path("book_type").asText(""));
-        book.setIsNew(bookNode.path("is_new").asText(""));
-        book.setIsEbook(bookNode.path("is_ebook").asText(""));
+        book.setIsNew(boolFromNode(bookNode.path("is_new")));
+        book.setIsEbook(boolFromNode(bookNode.path("is_ebook")));
         book.setLengthType(bookNode.path("length_type").asText(""));
         
         // ============ 其他信息 ============
@@ -937,12 +1048,12 @@ public class FQSearchService {
         book.setSource(bookNode.path("source").asText(""));
         book.setPlatform(bookNode.path("platform").asText(""));
         book.setFlightFlag(bookNode.path("flight_flag").asText(""));
-        book.setRecommendCountLevel(bookNode.path("recommend_count_level").asText(""));
-        book.setDataRate(bookNode.path("data_rate").asText(""));
-        book.setRiskRate(bookNode.path("risk_rate").asText(""));
-        
-        return book;
-    }
+	        book.setRecommendCountLevel(bookNode.path("recommend_count_level").asText(""));
+	        book.setDataRate(bookNode.path("data_rate").asDouble(0.0));
+	        book.setRiskRate(bookNode.path("risk_rate").asDouble(0.0));
+	        
+	        return book;
+	    }
 
     /**
      * 解析目录响应 - 基于实际API响应结构
@@ -986,7 +1097,7 @@ public class FQSearchService {
 
             // 解析连载数量
             if (dataNode.has("serial_count")) {
-                directoryResponse.setSerialCount(dataNode.get("serial_count").asText());
+                directoryResponse.setSerialCount(dataNode.get("serial_count").asInt(0));
             }
 
         }

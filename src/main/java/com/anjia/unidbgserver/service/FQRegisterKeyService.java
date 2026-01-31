@@ -152,7 +152,7 @@ public class FQRegisterKeyService {
         headers.forEach(httpHeaders::set);
 
         // 创建请求载荷
-        FqRegisterKeyPayload payload = new FqRegisterKeyPayload(var);
+        FqRegisterKeyPayload payload = buildRegisterKeyPayload(var);
         HttpEntity<FqRegisterKeyPayload> entity = new HttpEntity<>(payload, httpHeaders);
 
         log.debug("发送registerkey请求到: {}", fullUrl);
@@ -190,7 +190,16 @@ public class FQRegisterKeyService {
      */
     public String getDecryptionKey(Long requiredKeyver) throws Exception {
         FqRegisterKeyResponse registerKeyResponse = getRegisterKey(requiredKeyver);
-        return registerKeyResponse.getData().getRealKey();
+        if (registerKeyResponse.getData() == null) {
+            throw new IllegalStateException("registerkey 响应 data 为空");
+        }
+        return FqCrypto.getRealKey(registerKeyResponse.getData().getKey());
+    }
+
+    private FqRegisterKeyPayload buildRegisterKeyPayload(FqVariable var) throws Exception {
+        FqCrypto crypto = new FqCrypto(FqCrypto.REG_KEY);
+        String content = crypto.newRegisterKeyContent(var.getServerDeviceId(), "0");
+        return new FqRegisterKeyPayload(content, 1L);
     }
 
     /**

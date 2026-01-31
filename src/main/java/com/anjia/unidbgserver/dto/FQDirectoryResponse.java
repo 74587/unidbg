@@ -2,6 +2,9 @@ package com.anjia.unidbgserver.dto;
 
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonProperty;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.annotation.JsonDeserialize;
+import com.anjia.unidbgserver.json.LenientIntegerDeserializer;
 import lombok.Data;
 import java.util.List;
 
@@ -22,7 +25,7 @@ public class FQDirectoryResponse {
      * 附加数据列表
      */
     @JsonProperty("additional_item_data_list")
-    private Object additionalItemDataList;
+    private JsonNode additionalItemDataList;
 
     /**
      * 目录数据 - 章节索引信息
@@ -52,7 +55,8 @@ public class FQDirectoryResponse {
      * 连载数量
      */
     @JsonProperty("serial_count")
-    private String serialCount;
+    @JsonDeserialize(using = LenientIntegerDeserializer.class)
+    private Integer serialCount;
 
     @Data
     @JsonIgnoreProperties(ignoreUnknown = true)

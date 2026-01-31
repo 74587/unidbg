@@ -2,6 +2,9 @@ package com.anjia.unidbgserver.dto;
 
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonProperty;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.annotation.JsonDeserialize;
+import com.anjia.unidbgserver.json.LenientIntegerDeserializer;
 import lombok.Data;
 
 /**
@@ -16,7 +19,7 @@ public class FQNovelData {
      * UG可启动应用ID列表 - JSON字符串格式
      */
     @JsonProperty("ug_launchable_appid_list")
-    private String ugLaunchableAppidList;
+    private JsonNode ugLaunchableAppidList;
 
     /**
      * 音频主导色调
@@ -173,7 +176,7 @@ public class FQNovelData {
      * 包含不同音调对应的视频ID和时长信息
      */
     @JsonProperty("vid")
-    private String vid;
+    private JsonNode vid;
 
     /**
      * 推荐数量级别
@@ -264,7 +267,7 @@ public class FQNovelData {
      * 包含不同平台的上线时间戳
      */
     @JsonProperty("first_online_time")
-    private String firstOnlineTime;
+    private JsonNode firstOnlineTime;
 
     /**
      * 章节缩略图URL
@@ -288,7 +291,7 @@ public class FQNovelData {
      * 角色列表 - JSON字符串格式
      */
     @JsonProperty("roles")
-    private String roles;
+    private JsonNode roles;
 
     /**
      * 所有权类型
@@ -307,7 +310,7 @@ public class FQNovelData {
      * 包含详细的分类信息
      */
     @JsonProperty("category_v2")
-    private String categoryV2;
+    private JsonNode categoryV2;
 
     /**
      * 第三方合作伙伴URL
@@ -325,7 +328,7 @@ public class FQNovelData {
      * 原始作者信息 - JSON字符串格式
      */
     @JsonProperty("original_authors")
-    private String originalAuthors;
+    private JsonNode originalAuthors;
 
     /**
      * 礼物权限
@@ -356,7 +359,7 @@ public class FQNovelData {
      * 包含不同音调的时长数据
      */
     @JsonProperty("tone_duration")
-    private String toneDuration;
+    private JsonNode toneDuration;
 
     /**
      * 最后发布时间
@@ -404,14 +407,15 @@ public class FQNovelData {
      * 内容章节数量
      */
     @JsonProperty("content_chapter_number")
-    private String contentChapterNumber;
+    @JsonDeserialize(using = LenientIntegerDeserializer.class)
+    private Integer contentChapterNumber;
 
     /**
      * 相关书籍ID信息 - JSON字符串格式
      * 包含不同平台的相关书籍ID列表
      */
     @JsonProperty("related_bookids")
-    private String relatedBookids;
+    private JsonNode relatedBookids;
 
     /**
      * 出版社
@@ -460,7 +464,7 @@ public class FQNovelData {
      * 包含不同平台的海报配置
      */
     @JsonProperty("poster_info")
-    private String posterInfo;
+    private JsonNode posterInfo;
 
     /**
      * 类型
@@ -497,7 +501,7 @@ public class FQNovelData {
      * 包含不同平台的TTS授权和分发配置
      */
     @JsonProperty("contract_authorize")
-    private String contractAuthorize;
+    private JsonNode contractAuthorize;
 
     /**
      * 保持发布天数
@@ -617,7 +621,7 @@ public class FQNovelData {
      * 相关音频书籍ID列表 - JSON字符串格式
      */
     @JsonProperty("related_audio_bookids")
-    private String relatedAudioBookIds;
+    private JsonNode relatedAudioBookIds;
 
     /**
      * 前一个章节ID
@@ -684,7 +688,7 @@ public class FQNovelData {
      * 包含平台可见性配置
      */
     @JsonProperty("visibility_info")
-    private String visibilityInfo;
+    private JsonNode visibilityInfo;
 
     /**
      * 书籍类型
@@ -823,7 +827,7 @@ public class FQNovelData {
      * 包含不同地区的可见性和版权配置
      */
     @JsonProperty("region_visibility_info")
-    private String regionVisibilityInfo;
+    private JsonNode regionVisibilityInfo;
 
     /**
      * VIP书籍标识
@@ -950,7 +954,7 @@ public class FQNovelData {
      * 包含不同平台的首次可见时间戳
      */
     @JsonProperty("first_visible_time")
-    private String firstVisibleTime;
+    private JsonNode firstVisibleTime;
 
     /**
      * 分类V2 ID列表 - 逗号分隔
@@ -1005,5 +1009,5 @@ public class FQNovelData {
      * 包含不同音调的备份视频ID和时长
      */
     @JsonProperty("tts_backup")
-    private String ttsBackup;
+    private JsonNode ttsBackup;
 }

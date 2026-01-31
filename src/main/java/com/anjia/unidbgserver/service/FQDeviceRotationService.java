@@ -3,6 +3,7 @@ package com.anjia.unidbgserver.service;
 import com.anjia.unidbgserver.config.FQApiProperties;
 import com.anjia.unidbgserver.dto.DeviceInfo;
 import com.anjia.unidbgserver.dto.FQSearchRequest;
+import com.anjia.unidbgserver.dto.FQSearchResponse;
 import com.anjia.unidbgserver.dto.FqVariable;
 import com.anjia.unidbgserver.utils.FQApiUtils;
 import com.anjia.unidbgserver.utils.GzipUtils;
@@ -44,6 +45,7 @@ public class FQDeviceRotationService {
     private final UpstreamRateLimiter upstreamRateLimiter;
     private final RestTemplate restTemplate;
     private final ObjectMapper objectMapper;
+    private final FQSearchRequestEnricher searchRequestEnricher;
 
     private final ReentrantLock lock = new ReentrantLock();
     private volatile long lastRotateAtMs = 0L;
@@ -168,6 +170,7 @@ public class FQDeviceRotationService {
             searchRequest.setTabType(1);
             searchRequest.setPassback(0);
             searchRequest.setIsFirstEnterSearch(true);
+            searchRequestEnricher.enrich(searchRequest);
 
             FqVariable var = new FqVariable(fqApiProperties);
             String base = fqApiUtils.getBaseUrl();
@@ -207,8 +210,13 @@ public class FQDeviceRotationService {
             if (searchId != null && !searchId.isEmpty()) {
                 return true;
             }
-            JsonNode books = root.path("data").path("books");
-            return books.isArray() && books.size() > 0;
+
+            // 兼容 search_tabs / data.books 等结构
+            FQSearchResponse parsed = FQSearchService.parseSearchResponse(root, 1);
+            if (parsed != null && parsed.getBooks() != null && !parsed.getBooks().isEmpty()) {
+                return true;
+            }
+            return false;
         } catch (Exception e) {
             return false;
         }

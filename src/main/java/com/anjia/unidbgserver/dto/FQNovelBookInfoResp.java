@@ -2,6 +2,12 @@ package com.anjia.unidbgserver.dto;
 
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonProperty;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.annotation.JsonDeserialize;
+import com.anjia.unidbgserver.json.LenientBooleanDeserializer;
+import com.anjia.unidbgserver.json.LenientIntegerDeserializer;
+import com.anjia.unidbgserver.json.LenientLongDeserializer;
+import com.anjia.unidbgserver.json.LenientDoubleDeserializer;
 import lombok.Data;
 
 import java.util.Map;
@@ -17,7 +23,8 @@ public class FQNovelBookInfoResp {
      * 自定义总价格
      */
     @JsonProperty("custom_total_price")
-    private String customTotalPrice;
+    @JsonDeserialize(using = LenientLongDeserializer.class)
+    private Long customTotalPrice;
 
     /**
      * 原始书籍名称
@@ -41,7 +48,8 @@ public class FQNovelBookInfoResp {
      * 数据评级
      */
     @JsonProperty("data_rate")
-    private String dataRate;
+    @JsonDeserialize(using = LenientDoubleDeserializer.class)
+    private Double dataRate;
 
     /**
      * 是否为故事CP
@@ -71,13 +79,15 @@ public class FQNovelBookInfoResp {
      * 总价格
      */
     @JsonProperty("total_price")
-    private String totalPrice;
+    @JsonDeserialize(using = LenientLongDeserializer.class)
+    private Long totalPrice;
 
     /**
      * 加入书架数量
      */
     @JsonProperty("add_bookshelf_count")
-    private String addBookshelfCount;
+    @JsonDeserialize(using = LenientLongDeserializer.class)
+    private Long addBookshelfCount;
 
     /**
      * 小说书籍缩略图类型
@@ -95,7 +105,8 @@ public class FQNovelBookInfoResp {
      * 风险率延迟入队时间戳
      */
     @JsonProperty("risk_rate_delay_enqueue_ts")
-    private String riskRateDelayEnqueueTs;
+    @JsonDeserialize(using = LenientLongDeserializer.class)
+    private Long riskRateDelayEnqueueTs;
 
     /**
      * 授权类型
@@ -124,19 +135,21 @@ public class FQNovelBookInfoResp {
      * 折扣自定义总价格
      */
     @JsonProperty("discount_custom_total_price")
-    private String discountCustomTotalPrice;
+    @JsonDeserialize(using = LenientLongDeserializer.class)
+    private Long discountCustomTotalPrice;
 
     /**
      * 区域可见性信息
      */
     @JsonProperty("region_visibility_info")
-    private String regionVisibilityInfo;
+    private JsonNode regionVisibilityInfo;
 
     /**
      * 保持发布天数
      */
     @JsonProperty("keep_publish_days")
-    private String keepPublishDays;
+    @JsonDeserialize(using = LenientIntegerDeserializer.class)
+    private Integer keepPublishDays;
 
     /**
      * 纯分类标签
@@ -190,7 +203,8 @@ public class FQNovelBookInfoResp {
      * 是否为电子书
      */
     @JsonProperty("is_ebook")
-    private String isEbook;
+    @JsonDeserialize(using = LenientBooleanDeserializer.class)
+    private Boolean isEbook;
 
     /**
      * 推荐审核员最后时间
@@ -207,7 +221,8 @@ public class FQNovelBookInfoResp {
      * 总阅读数
      */
     @JsonProperty("read_count_all")
-    private String readCountAll;
+    @JsonDeserialize(using = LenientLongDeserializer.class)
+    private Long readCountAll;
 
     /**
      * 音频主导色
@@ -224,7 +239,8 @@ public class FQNovelBookInfoResp {
     /**
      * 评分
      */
-    private String score;
+    @JsonDeserialize(using = LenientDoubleDeserializer.class)
+    private Double score;
 
     /**
      * 移除类型
@@ -241,7 +257,7 @@ public class FQNovelBookInfoResp {
     /**
      * 角色列表
      */
-    private String roles;
+    private JsonNode roles;
 
     /**
      * 真实独家标志
@@ -259,7 +275,8 @@ public class FQNovelBookInfoResp {
      * 收听数量
      */
     @JsonProperty("listen_count")
-    private String listenCount;
+    @JsonDeserialize(using = LenientLongDeserializer.class)
+    private Long listenCount;
 
     /**
      * 分类FM
@@ -300,25 +317,29 @@ public class FQNovelBookInfoResp {
      * 阅读数量回退阈值
      */
     @JsonProperty("read_cnt_fall_back_threshold")
-    private String readCntFallBackThreshold;
+    @JsonDeserialize(using = LenientLongDeserializer.class)
+    private Long readCntFallBackThreshold;
 
     /**
      * 首次可见时间
      */
     @JsonProperty("first_visible_time")
-    private String firstVisibleTime;
+    @JsonDeserialize(using = LenientLongDeserializer.class)
+    private Long firstVisibleTime;
 
     /**
      * 最新阅读时间
      */
     @JsonProperty("latest_read_time")
-    private String latestReadTime;
+    @JsonDeserialize(using = LenientLongDeserializer.class)
+    private Long latestReadTime;
 
     /**
      * 每日读者UV总和
      */
     @JsonProperty("reader_uv_sum_daily")
-    private String readerUvSumDaily;
+    @JsonDeserialize(using = LenientLongDeserializer.class)
+    private Long readerUvSumDaily;
 
     /**
      * 作者信息
@@ -330,19 +351,22 @@ public class FQNovelBookInfoResp {
      * 30天阅读数量
      */
     @JsonProperty("read_dcnt_30d")
-    private String readDcnt30d;
+    @JsonDeserialize(using = LenientLongDeserializer.class)
+    private Long readDcnt30d;
 
     /**
      * 是否为新书
      */
     @JsonProperty("is_new")
-    private String isNew;
+    @JsonDeserialize(using = LenientBooleanDeserializer.class)
+    private Boolean isNew;
 
     /**
      * 预估章节数
      */
     @JsonProperty("estimated_chapter_count")
-    private String estimatedChapterCount;
+    @JsonDeserialize(using = LenientIntegerDeserializer.class)
+    private Integer estimatedChapterCount;
 
     /**
      * 番茄书籍状态
@@ -399,13 +423,15 @@ public class FQNovelBookInfoResp {
      * 将保持更新天数
      */
     @JsonProperty("will_keep_update_days")
-    private String willKeepUpdateDays;
+    @JsonDeserialize(using = LenientIntegerDeserializer.class)
+    private Integer willKeepUpdateDays;
 
     /**
      * 内容章节数
      */
     @JsonProperty("content_chapter_number")
-    private String contentChapterNumber;
+    @JsonDeserialize(using = LenientIntegerDeserializer.class)
+    private Integer contentChapterNumber;
 
     /**
      * 分类V2
@@ -417,7 +443,8 @@ public class FQNovelBookInfoResp {
      * 风险率
      */
     @JsonProperty("risk_rate")
-    private String riskRate;
+    @JsonDeserialize(using = LenientDoubleDeserializer.class)
+    private Double riskRate;
 
     /**
      * 第一章标题
@@ -469,13 +496,15 @@ public class FQNovelBookInfoResp {
      * 阅读数量回退阈值
      */
     @JsonProperty("read_cnt_fallback_threshold")
-    private String readCntFallbackThreshold;
+    @JsonDeserialize(using = LenientLongDeserializer.class)
+    private Long readCntFallbackThreshold;
 
     /**
      * 最后章节更新时间
      */
     @JsonProperty("last_chapter_update_time")
-    private String lastChapterUpdateTime;
+    @JsonDeserialize(using = LenientLongDeserializer.class)
+    private Long lastChapterUpdateTime;
 
     /**
      * 主导色
@@ -487,7 +516,8 @@ public class FQNovelBookInfoResp {
      * 折扣价格
      */
     @JsonProperty("discount_price")
-    private String discountPrice;
+    @JsonDeserialize(using = LenientLongDeserializer.class)
+    private Long discountPrice;
 
     /**
      * 更新停止
@@ -499,7 +529,8 @@ public class FQNovelBookInfoResp {
      * 14天加入书架数量
      */
     @JsonProperty("add_shelf_count_14d")
-    private String addShelfCount14d;
+    @JsonDeserialize(using = LenientLongDeserializer.class)
+    private Long addShelfCount14d;
 
     /**
      * 阅读数量回退子文本
@@ -511,7 +542,7 @@ public class FQNovelBookInfoResp {
      * 可见性信息
      */
     @JsonProperty("visibility_info")
-    private String visibilityInfo;
+    private JsonNode visibilityInfo;
 
     /**
      * 销售状态
@@ -535,19 +566,22 @@ public class FQNovelBookInfoResp {
      * 字数
      */
     @JsonProperty("word_number")
-    private String wordNumber;
+    @JsonDeserialize(using = LenientLongDeserializer.class)
+    private Long wordNumber;
 
     /**
      * 是否为老白
      */
     @JsonProperty("is_laobai")
-    private String isLaobai;
+    @JsonDeserialize(using = LenientBooleanDeserializer.class)
+    private Boolean isLaobai;
 
     /**
      * 14天读者UV
      */
     @JsonProperty("reader_uv_14day")
-    private String readerUv14day;
+    @JsonDeserialize(using = LenientLongDeserializer.class)
+    private Long readerUv14day;
 
     /**
      * 隐藏收听球
@@ -559,7 +593,8 @@ public class FQNovelBookInfoResp {
      * 14天收听UV
      */
     @JsonProperty("listen_uv_14day")
-    private String listenUv14day;
+    @JsonDeserialize(using = LenientLongDeserializer.class)
+    private Long listenUv14day;
 
     /**
      * 创作状态
@@ -589,7 +624,8 @@ public class FQNovelBookInfoResp {
      * 阅读数量
      */
     @JsonProperty("read_count")
-    private String readCount;
+    @JsonDeserialize(using = LenientLongDeserializer.class)
+    private Long readCount;
 
     /**
      * 缩略图URI
@@ -601,7 +637,8 @@ public class FQNovelBookInfoResp {
      * 30天收听UV
      */
     @JsonProperty("listen_uv_30day")
-    private String listenUv30day;
+    @JsonDeserialize(using = LenientLongDeserializer.class)
+    private Long listenUv30day;
 
     /**
      * 广告免费显示
@@ -660,7 +697,8 @@ public class FQNovelBookInfoResp {
      * 最新收听时间
      */
     @JsonProperty("latest_listen_time")
-    private String latestListenTime;
+    @JsonDeserialize(using = LenientLongDeserializer.class)
+    private Long latestListenTime;
 
     /**
      * 媒体ID
@@ -682,12 +720,14 @@ public class FQNovelBookInfoResp {
      * 10%完成率
      */
     @JsonProperty("finish_rate_10")
-    private String finishRate10;
+    @JsonDeserialize(using = LenientDoubleDeserializer.class)
+    private Double finishRate10;
 
     /**
      * 时长
      */
-    private String duration;
+    @JsonDeserialize(using = LenientLongDeserializer.class)
+    private Long duration;
 
     /**
      * 原始策略
@@ -716,7 +756,8 @@ public class FQNovelBookInfoResp {
      * 所有书架数量
      */
     @JsonProperty("all_bookshelf_count")
-    private String allBookshelfCount;
+    @JsonDeserialize(using = LenientLongDeserializer.class)
+    private Long allBookshelfCount;
 
     /**
      * 销售类型
@@ -734,7 +775,8 @@ public class FQNovelBookInfoResp {
      * 连载数量
      */
     @JsonProperty("serial_count")
-    private String serialCount;
+    @JsonDeserialize(using = LenientIntegerDeserializer.class)
+    private Integer serialCount;
 
     /**
      * 收听进度
@@ -746,7 +788,8 @@ public class FQNovelBookInfoResp {
      * 书架数量历史
      */
     @JsonProperty("shelf_cnt_history")
-    private String shelfCntHistory;
+    @JsonDeserialize(using = LenientLongDeserializer.class)
+    private Long shelfCntHistory;
 
     /**
      * 子摘要
@@ -775,7 +818,8 @@ public class FQNovelBookInfoResp {
      * 最后发布时间
      */
     @JsonProperty("last_publish_time")
-    private String lastPublishTime;
+    @JsonDeserialize(using = LenientLongDeserializer.class)
+    private Long lastPublishTime;
 
     /**
      * 平台书籍ID
@@ -805,7 +849,8 @@ public class FQNovelBookInfoResp {
      * 最后章节首次通过时间
      */
     @JsonProperty("last_chapter_first_pass_time")
-    private String lastChapterFirstPassTime;
+    @JsonDeserialize(using = LenientLongDeserializer.class)
+    private Long lastChapterFirstPassTime;
 
     /**
      * 第一章项目ID
@@ -918,7 +963,8 @@ public class FQNovelBookInfoResp {
     /**
      * 状态
      */
-    private String status;
+    @JsonDeserialize(using = LenientIntegerDeserializer.class)
+    private Integer status;
 
     /**
      * 原始默认书籍
@@ -984,7 +1030,8 @@ public class FQNovelBookInfoResp {
      * 基础价格
      */
     @JsonProperty("base_price")
-    private String basePrice;
+    @JsonDeserialize(using = LenientLongDeserializer.class)
+    private Long basePrice;
 
     /**
      * 阅读数量回退文本
@@ -1002,7 +1049,8 @@ public class FQNovelBookInfoResp {
      * 首次上线时间
      */
     @JsonProperty("first_online_time")
-    private String firstOnlineTime;
+    @JsonDeserialize(using = LenientLongDeserializer.class)
+    private Long firstOnlineTime;
 
     /**
      * 原始活动标志
@@ -1032,7 +1080,8 @@ public class FQNovelBookInfoResp {
      * 创建时间
      */
     @JsonProperty("create_time")
-    private String createTime;
+    @JsonDeserialize(using = LenientLongDeserializer.class)
+    private Long createTime;
 
     /**
      * 阅读页面进度
@@ -1061,7 +1110,7 @@ public class FQNovelBookInfoResp {
      * 合同授权
      */
     @JsonProperty("contract_authorize")
-    private String contractAuthorize;
+    private JsonNode contractAuthorize;
 
     /**
      * 操作标签
@@ -1108,7 +1157,8 @@ public class FQNovelBookInfoResp {
      * 保持更新天数
      */
     @JsonProperty("keep_update_days")
-    private String keepUpdateDays;
+    @JsonDeserialize(using = LenientIntegerDeserializer.class)
+    private Integer keepUpdateDays;
 
     // 新增字段，根据响应体补充
 
@@ -1128,13 +1178,15 @@ public class FQNovelBookInfoResp {
      * 声誉最新设置时间
      */
     @JsonProperty("reputation_latest_set_time")
-    private String reputationLatestSetTime;
+    @JsonDeserialize(using = LenientLongDeserializer.class)
+    private Long reputationLatestSetTime;
 
     /**
      * 额外字数
      */
     @JsonProperty("extra_word_number")
-    private String extraWordNumber;
+    @JsonDeserialize(using = LenientLongDeserializer.class)
+    private Long extraWordNumber;
 
     /**
      * 海报标志
@@ -1188,7 +1240,8 @@ public class FQNovelBookInfoResp {
      * 创作最新完成时间
      */
     @JsonProperty("creation_latest_finish_time")
-    private String creationLatestFinishTime;
+    @JsonDeserialize(using = LenientLongDeserializer.class)
+    private Long creationLatestFinishTime;
 
     /**
      * 是否有额外章节

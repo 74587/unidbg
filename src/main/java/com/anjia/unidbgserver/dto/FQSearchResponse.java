@@ -100,7 +100,7 @@ public class FQSearchResponse {
         /**
          * 状态 (连载中/已完结等)
          */
-        private String status;
+        private Integer status;
 
         /**
          * 创作状态
@@ -206,7 +206,7 @@ public class FQSearchResponse {
         /**
          * 阅读数量
          */
-        private String readCount;
+        private Long readCount;
 
         /**
          * 阅读数量文本
@@ -216,39 +216,39 @@ public class FQSearchResponse {
         /**
          * 加入书架数量
          */
-        private String addBookshelfCount;
+        private Long addBookshelfCount;
 
         /**
          * 14天读者UV
          */
-        private String readerUv14day;
+        private Long readerUv14day;
 
         /**
          * 收听数量
          */
-        private String listenCount;
+        private Long listenCount;
 
         /**
          * 完成率10%
          */
-        private String finishRate10;
+        private Double finishRate10;
 
         // ============ 价格与销售 ============
 
         /**
          * 总价格
          */
-        private String totalPrice;
+        private Long totalPrice;
 
         /**
          * 基础价格
          */
-        private String basePrice;
+        private Long basePrice;
 
         /**
          * 折扣价格
          */
-        private String discountPrice;
+        private Long discountPrice;
 
         /**
          * 免费状态
@@ -294,27 +294,27 @@ public class FQSearchResponse {
          */
         private String thumbUri;
 
-        // ============ 时间信息 ============
-
-        /**
-         * 创建时间
-         */
-        private String createTime;
+	        // ============ 时间信息 ============
+	
+	        /**
+	         * 创建时间
+	         */
+	        private Long createTime;
 
         /**
          * 发布日期
          */
         private String publishedDate;
 
-        /**
-         * 最后发布时间
-         */
-        private String lastPublishTime;
+	        /**
+	         * 最后发布时间
+	         */
+	        private Long lastPublishTime;
 
-        /**
-         * 首次上线时间
-         */
-        private String firstOnlineTime;
+	        /**
+	         * 首次上线时间
+	         */
+	        private Long firstOnlineTime;
 
         // ============ 书籍类型 ============
 
@@ -326,12 +326,12 @@ public class FQSearchResponse {
         /**
          * 是否为新书
          */
-        private String isNew;
+        private Boolean isNew;
 
         /**
          * 是否为电子书
          */
-        private String isEbook;
+        private Boolean isEbook;
 
         /**
          * 长度类型
@@ -380,14 +380,14 @@ public class FQSearchResponse {
          */
         private String recommendCountLevel;
 
-        /**
-         * 数据评级
-         */
-        private String dataRate;
+	        /**
+	         * 数据评级
+	         */
+	        private Double dataRate;
 
-        /**
-         * 风险率
-         */
-        private String riskRate;
+	        /**
+	         * 风险率
+	         */
+	        private Double riskRate;
     }
 }

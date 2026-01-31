@@ -1,5 +1,6 @@
 package com.anjia.unidbgserver.dto;
 
+import com.fasterxml.jackson.databind.JsonNode;
 import lombok.Data;
 import java.util.Map;
 
@@ -101,7 +102,7 @@ public class FQNovelBookInfo {
     /**
      * 字数
      */
-    private String wordNumber;
+    private Long wordNumber;
 
     /**
      * 第一章标题
@@ -136,12 +137,12 @@ public class FQNovelBookInfo {
     /**
      * 最后章节更新时间
      */
-    private String lastChapterUpdateTime;
+    private Long lastChapterUpdateTime;
 
     /**
      * 最后章节首次通过时间
      */
-    private String lastChapterFirstPassTime;
+    private Long lastChapterFirstPassTime;
 
     /**
      * 真实章节顺序
@@ -210,12 +211,12 @@ public class FQNovelBookInfo {
     /**
      * 阅读数量
      */
-    private String readCount;
+    private Long readCount;
 
     /**
      * 所有阅读数
      */
-    private String readCountAll;
+    private Long readCountAll;
 
     /**
      * 阅读数量文本
@@ -225,72 +226,72 @@ public class FQNovelBookInfo {
     /**
      * 30天阅读数量
      */
-    private String readDcnt30d;
+    private Long readDcnt30d;
 
     /**
      * 加入书架数量
      */
-    private String addBookshelfCount;
+    private Long addBookshelfCount;
 
     /**
      * 所有书架数量
      */
-    private String allBookshelfCount;
+    private Long allBookshelfCount;
 
     /**
      * 14天加入书架数量
      */
-    private String addShelfCount14d;
+    private Long addShelfCount14d;
 
     /**
      * 书架数量历史
      */
-    private String shelfCntHistory;
+    private Long shelfCntHistory;
 
     /**
      * 14天读者UV
      */
-    private String readerUv14day;
+    private Long readerUv14day;
 
     /**
      * 每日读者UV总和
      */
-    private String readerUvSumDaily;
+    private Long readerUvSumDaily;
 
     /**
      * 收听数量
      */
-    private String listenCount;
+    private Long listenCount;
 
     /**
      * 14天收听UV
      */
-    private String listenUv14day;
+    private Long listenUv14day;
 
     /**
      * 30天收听UV
      */
-    private String listenUv30day;
+    private Long listenUv30day;
 
     /**
      * 评分
      */
-    private String score;
+    private Double score;
 
     /**
      * 10%完成率
      */
-    private String finishRate10;
+    private Double finishRate10;
 
     /**
      * 数据评级
      */
-    private String dataRate;
+    private Double dataRate;
 
     /**
      * 风险率
      */
-    private String riskRate;
+    private Double riskRate;
 
     /**
      * 推荐数量级别
@@ -302,27 +303,27 @@ public class FQNovelBookInfo {
     /**
      * 总价格
      */
-    private String totalPrice;
+    private Long totalPrice;
 
     /**
      * 自定义总价格
      */
-    private String customTotalPrice;
+    private Long customTotalPrice;
 
     /**
      * 折扣价格
      */
-    private String discountPrice;
+    private Long discountPrice;
 
     /**
      * 折扣自定义总价格
      */
-    private String discountCustomTotalPrice;
+    private Long discountCustomTotalPrice;
 
     /**
      * 基础价格
      */
-    private String basePrice;
+    private Long basePrice;
 
     /**
      * 销售状态
@@ -369,7 +370,7 @@ public class FQNovelBookInfo {
     /**
      * 合同授权
      */
-    private String contractAuthorize;
+    private JsonNode contractAuthorize;
 
     // ============ 音频相关 ============
 
@@ -406,7 +407,7 @@ public class FQNovelBookInfo {
     /**
      * 时长
      */
-    private String duration;
+    private Long duration;
 
     /**
      * 相关音频书籍ID
@@ -460,7 +461,7 @@ public class FQNovelBookInfo {
     /**
      * 创建时间
      */
-    private String createTime;
+    private Long createTime;
 
     /**
      * 发布日期
@@ -470,27 +471,27 @@ public class FQNovelBookInfo {
     /**
      * 最后发布时间
      */
-    private String lastPublishTime;
+    private Long lastPublishTime;
 
     /**
      * 首次上线时间
      */
-    private String firstOnlineTime;
+    private Long firstOnlineTime;
 
     /**
      * 首次可见时间
      */
-    private String firstVisibleTime;
+    private Long firstVisibleTime;
 
     /**
      * 最新阅读时间
      */
-    private String latestReadTime;
+    private Long latestReadTime;
 
     /**
      * 最新收听时间
      */
-    private String latestListenTime;
+    private Long latestListenTime;
 
     // ============ 书籍类型 ============
 
@@ -502,17 +503,17 @@ public class FQNovelBookInfo {
     /**
      * 是否为新书
      */
-    private String isNew;
+    private Boolean isNew;
 
     /**
      * 是否为电子书
      */
-    private String isEbook;
+    private Boolean isEbook;
 
     /**
      * 是否为老白
      */
-    private String isLaobai;
+    private Boolean isLaobai;
 
     /**
      * 长度类型
@@ -539,12 +540,12 @@ public class FQNovelBookInfo {
     /**
      * 可见性信息
      */
-    private String visibilityInfo;
+    private JsonNode visibilityInfo;
 
     /**
      * 区域可见性信息
      */
-    private String regionVisibilityInfo;
+    private JsonNode regionVisibilityInfo;
 
     /**
      * 出版社
@@ -619,12 +620,12 @@ public class FQNovelBookInfo {
     /**
      * 声誉最新设置时间
      */
-    private String reputationLatestSetTime;
+    private Long reputationLatestSetTime;
 
     /**
      * 额外字数
      */
-    private String extraWordNumber;
+    private Long extraWordNumber;
 
     /**
      * 是否有额外章节
@@ -644,27 +645,27 @@ public class FQNovelBookInfo {
     /**
      * 保持发布天数
      */
-    private String keepPublishDays;
+    private Integer keepPublishDays;
 
     /**
      * 保持更新天数
      */
-    private String keepUpdateDays;
+    private Integer keepUpdateDays;
 
     /**
      * 将保持更新天数
      */
-    private String willKeepUpdateDays;
+    private Integer willKeepUpdateDays;
 
     /**
      * 预估章节数
      */
-    private String estimatedChapterCount;
+    private Integer estimatedChapterCount;
 
     /**
      * 内容章节数
      */
-    private String contentChapterNumber;
+    private Integer contentChapterNumber;
 
     /**
      * 禁用阅读器功能
@@ -699,5 +700,5 @@ public class FQNovelBookInfo {
     /**
      * 创作最新完成时间
      */
-    private String creationLatestFinishTime;
+    private Long creationLatestFinishTime;
 }

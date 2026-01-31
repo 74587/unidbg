@@ -33,7 +33,7 @@ public class FQBatchChapterRequest {
     private String deviceId;
 
     /**
-     * 应用ID (可选)
+     * 安装ID（请求参数名为 iid，可选）
      */
     private String iid;
 

@@ -41,6 +41,9 @@ public class FQNovelService {
     private FQRegisterKeyService registerKeyService;
 
     @Resource
+    private FQContentService fqContentService;
+
+    @Resource
     private FQApiProperties fqApiProperties;
 
     @Resource
@@ -289,35 +292,11 @@ public class FQNovelService {
                 
                 // 优先从bookInfo中获取serialCount
                 if (bookInfoResp.getSerialCount() != null) {
-                    try {
-                        bookInfo.setTotalChapters(Integer.parseInt(bookInfoResp.getSerialCount()));
-                        log.debug("使用bookInfo.serialCount获取章节总数 - bookId: {}, 章节数: {}", bookId, bookInfoResp.getSerialCount());
-                    } catch (NumberFormatException e) {
-                        log.error("解析bookInfo.serialCount失败 - bookId: {}, serialCount: {}", bookId, bookInfoResp.getSerialCount());
-                        // 如果解析失败，尝试从目录数据获取
-                        List<FQDirectoryResponse.CatalogItem> catalogData = directoryData.getCatalogData();
-                        if (catalogData != null && !catalogData.isEmpty()) {
-                            bookInfo.setTotalChapters(catalogData.size());
-                            log.info("从目录数据获取章节总数 - bookId: {}, 章节数: {}", bookId, catalogData.size());
-                        } else {
-                            bookInfo.setTotalChapters(0);
-                        }
-                    }
+                    bookInfo.setTotalChapters(bookInfoResp.getSerialCount());
+                    log.debug("使用bookInfo.serialCount获取章节总数 - bookId: {}, 章节数: {}", bookId, bookInfoResp.getSerialCount());
                 } else if (directoryData.getSerialCount() != null) {
-                    try {
-                        bookInfo.setTotalChapters(Integer.parseInt(directoryData.getSerialCount()));
-                        log.info("使用目录接口serial_count获取章节总数 - bookId: {}, 章节数: {}", bookId, directoryData.getSerialCount());
-                    } catch (NumberFormatException e) {
-                        log.error("解析目录接口serial_count失败 - bookId: {}, serialCount: {}", bookId, directoryData.getSerialCount());
-                        // 如果解析失败，尝试从目录数据获取
-                        List<FQDirectoryResponse.CatalogItem> catalogData = directoryData.getCatalogData();
-                        if (catalogData != null && !catalogData.isEmpty()) {
-                            bookInfo.setTotalChapters(catalogData.size());
-                            log.info("从目录数据获取章节总数 - bookId: {}, 章节数: {}", bookId, catalogData.size());
-                        } else {
-                            bookInfo.setTotalChapters(0);
-                        }
-                    }
+                    bookInfo.setTotalChapters(directoryData.getSerialCount());
+                    log.info("使用目录接口serial_count获取章节总数 - bookId: {}, 章节数: {}", bookId, directoryData.getSerialCount());
                 } else {
                     // 如果两个serial_count都为空，尝试从目录数据获取
                     List<FQDirectoryResponse.CatalogItem> catalogData = directoryData.getCatalogData();
@@ -359,7 +338,7 @@ public class FQNovelService {
 
                 // 解密内容
                 List<Map.Entry<String, String>> decryptedContents =
-                    batchResponse.getData().getDecryptContents(registerKeyService);
+                    fqContentService.decryptBatchContents(batchResponse.getData());
 
                 return FQNovelResponse.success(decryptedContents);
 
@@ -415,9 +394,7 @@ public class FQNovelService {
                 // 解密章节内容
                 String decryptedContent = "";
                 try {
-                    Long contentKeyver = itemContent.getKeyVersion();
-                    String key = registerKeyService.getDecryptionKey(contentKeyver);
-                    decryptedContent = FqCrypto.decryptAndDecompressContent(itemContent.getContent(), key);
+                    decryptedContent = fqContentService.decryptAndDecompress(itemContent);
                 } catch (Exception e) {
                     log.error("解密章节内容失败 - chapterId: {}", chapterId, e);
                     return FQNovelResponse.error("解密章节内容失败: " + e.getMessage());
@@ -604,17 +581,8 @@ public class FQNovelService {
                 bookInfo.setCoverUrl(novelData.getThumbUrl());
                 bookInfo.setStatus(novelData.getStatus());
                 // 使用content_chapter_number字段获取章节数，而不是wordNumber（字数）
-                String contentChapterNumber = novelData.getContentChapterNumber();
-                if (contentChapterNumber != null && !contentChapterNumber.isEmpty()) {
-                    try {
-                        bookInfo.setTotalChapters(Integer.parseInt(contentChapterNumber));
-                    } catch (NumberFormatException e) {
-                        log.warn("解析章节数失败 - contentChapterNumber: {}", contentChapterNumber);
-                        bookInfo.setTotalChapters(0);
-                    }
-                } else {
-                    bookInfo.setTotalChapters(0);
-                }
+                Integer contentChapterNumber = novelData.getContentChapterNumber();
+                bookInfo.setTotalChapters(contentChapterNumber != null ? contentChapterNumber : 0);
                 response.setBookInfo(bookInfo);
 
                 // 处理每个章节
@@ -870,14 +838,8 @@ public class FQNovelService {
         info.setExpandThumbUrl(resp.getExpandThumbUrl());
         info.setHorizThumbUrl(resp.getHorizThumbUrl());
         
-        // 状态转换
-        if (resp.getStatus() != null) {
-            try {
-                info.setStatus(Integer.parseInt(resp.getStatus()));
-            } catch (NumberFormatException e) {
-                info.setStatus(0);
-            }
-        }
+        // 状态
+        info.setStatus(resp.getStatus() != null ? resp.getStatus() : 0);
         
         info.setCreationStatus(resp.getCreationStatus());
         info.setUpdateStatus(resp.getUpdateStatus());

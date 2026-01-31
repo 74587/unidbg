@@ -60,7 +60,7 @@ public class FQNovelController {
      * @param bookId 书籍ID
      * @param chapterId 章节ID
      * @param deviceId 设备ID (可选)
-     * @param iid 应用ID (可选)
+     * @param iid 安装ID（请求参数名为 iid，可选）
      * @param token 用户token (可选)
      * @return 章节内容信息
      */

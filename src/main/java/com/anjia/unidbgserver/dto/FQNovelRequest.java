@@ -24,7 +24,7 @@ public class FQNovelRequest {
     private String deviceId;
     
     /**
-     * 应用ID
+     * 安装ID（请求参数名为 iid）
      */
     private String iid;
     

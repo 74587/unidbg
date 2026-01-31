@@ -4,7 +4,6 @@ import com.anjia.unidbgserver.dto.FQNovelBookInfo;
 import com.anjia.unidbgserver.dto.FQNovelBookInfoResp;
 import org.mapstruct.Mapper;
 import org.mapstruct.Mapping;
-import org.mapstruct.Named;
 import org.mapstruct.factory.Mappers;
 
 /**
@@ -25,23 +24,8 @@ public interface BookInfoMapper {
      */
     @Mapping(target = "bookId", source = "bookId")
     @Mapping(target = "description", source = "resp.abstractContent")
-    @Mapping(target = "status", source = "resp.status", qualifiedByName = "stringToInteger")
+    @Mapping(target = "status", source = "resp.status")
     @Mapping(target = "totalChapters", ignore = true) // 需要特殊处理
     @Mapping(target = "authorInfo", ignore = true) // 需要特殊处理
     FQNovelBookInfo toBookInfo(FQNovelBookInfoResp resp, String bookId);
-
-    /**
-     * 字符串转整数
-     */
-    @Named("stringToInteger")
-    default Integer stringToInteger(String value) {
-        if (value == null || value.trim().isEmpty()) {
-            return 0;
-        }
-        try {
-            return Integer.parseInt(value.trim());
-        } catch (NumberFormatException e) {
-            return 0;
-        }
-    }
 }
