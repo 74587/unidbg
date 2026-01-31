@@ -533,6 +533,11 @@ public class FQNovelService {
                     // 如果提供了章节ID列表，直接使用
                     itemIds = request.getChapterIds();
                     chapterIds = request.getChapterIds();
+                    if (chapterIds.size() < FQConstants.Chapter.MIN_BATCH_SIZE
+                        || chapterIds.size() > FQConstants.Chapter.MAX_BATCH_SIZE) {
+                        return FQNovelResponse.error("章节数量必须在" + FQConstants.Chapter.MIN_BATCH_SIZE
+                            + "-" + FQConstants.Chapter.MAX_BATCH_SIZE + "之间，当前请求: " + chapterIds.size());
+                    }
                 } else {
                     // 否则使用章节范围字符串
                     chapterIds = parseChapterRange(request.getChapterRange());
@@ -577,8 +582,19 @@ public class FQNovelService {
                 response.setBookId(request.getBookId());
                 response.setRequestedRange(request.getChapterRange());
                 response.setTotalRequested(chapterIds.size());
-                // 获取第一个itemId的novelData信息
-                FQNovelData novelData = dataMap.get(itemIds.get(0)).getNovelData();
+                // 获取任意一个可用的novelData信息
+                ItemContent firstItem = null;
+                for (String itemId : itemIds) {
+                    ItemContent candidate = dataMap.get(itemId);
+                    if (candidate != null && candidate.getNovelData() != null) {
+                        firstItem = candidate;
+                        break;
+                    }
+                }
+                if (firstItem == null) {
+                    return FQNovelResponse.error("获取批量章节内容失败: 上游数据不完整");
+                }
+                FQNovelData novelData = firstItem.getNovelData();
 
                 // 构建书籍信息 (简化版本)
                 FQNovelBookInfo bookInfo = new FQNovelBookInfo();
@@ -604,6 +620,12 @@ public class FQNovelService {
                 // 处理每个章节
                 Map<String, FQBatchChapterInfo> chaptersMap = new LinkedHashMap<>();
                 int successCount = 0;
+                Map<String, Integer> itemIndexMap = new HashMap<>();
+                if (isChapterPositions(chapterIds)) {
+                    for (int i = 0; i < itemIds.size(); i++) {
+                        itemIndexMap.put(itemIds.get(i), i);
+                    }
+                }
 
                 for (String itemId : itemIds) {
                     try {
@@ -654,7 +676,7 @@ public class FQNovelService {
                         String chapterKey;
                         if (isChapterPositions(chapterIds)) {
                             // 找到这个itemId对应的章节位置
-                            int itemIndex = itemIds.indexOf(itemId);
+                            int itemIndex = itemIndexMap.getOrDefault(itemId, -1);
                             if (itemIndex >= 0 && itemIndex < chapterIds.size()) {
                                 chapterKey = chapterIds.get(itemIndex);
                             } else {

@@ -161,6 +161,7 @@ public class FQNovelController {
      */
     private Map<String, String> extractExtraHeaders(HttpServletRequest request) {
         Map<String, String> extraHeaders = new HashMap<>();
+        final int maxHeaderValueLength = 8192;
         
         // 这里可以根据需要提取特定的请求头
         // 例如用户自定义的认证头、跟踪头等
@@ -172,6 +173,10 @@ public class FQNovelController {
             
             // 过滤掉标准HTTP头，只保留自定义头
             if (isCustomHeader(headerName)) {
+                if (headerValue != null && headerValue.length() > maxHeaderValueLength) {
+                    log.warn("忽略过长的自定义请求头 - name: {}, length: {}", headerName, headerValue.length());
+                    continue;
+                }
                 extraHeaders.put(headerName, headerValue);
             }
         }

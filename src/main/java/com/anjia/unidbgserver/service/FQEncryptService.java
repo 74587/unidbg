@@ -72,7 +72,7 @@ public class FQEncryptService {
             }
 
             log.debug("准备生成FQ签名 - URL: {}", url);
-            log.debug("准备生成FQ签名 - Headers: {}", headers);
+            log.debug("准备生成FQ签名 - Headers: {}", maskSensitiveHeaders(headers));
 
             IdleFQ signer = this.idleFQ;
             if (signer == null) {
@@ -217,6 +217,48 @@ public class FQEncryptService {
         }
 
         return result;
+    }
+
+    private String maskSensitiveHeaders(String headers) {
+        if (headers == null || headers.isEmpty()) {
+            return headers;
+        }
+        String normalized = headers.replace("\r\n", "\n").replace('\r', '\n');
+        StringBuilder masked = new StringBuilder();
+        String[] lines = normalized.split("\n");
+        boolean redactNextValue = false;
+        for (int i = 0; i < lines.length; i++) {
+            String line = lines[i];
+            String trimmed = line.trim();
+            String lower = trimmed.toLowerCase(Locale.ROOT);
+            if (redactNextValue) {
+                masked.append("[REDACTED]");
+                redactNextValue = false;
+            } else if (isSensitiveHeaderName(lower)) {
+                int idx = line.indexOf(':');
+                if (idx > -1) {
+                    String name = line.substring(0, idx + 1);
+                    masked.append(name).append(" [REDACTED]");
+                } else {
+                    masked.append(line);
+                    redactNextValue = true;
+                }
+            } else {
+                masked.append(line);
+            }
+            if (i < lines.length - 1) {
+                masked.append('\n');
+            }
+        }
+        return masked.toString();
+    }
+
+    private boolean isSensitiveHeaderName(String lowerCaseName) {
+        return lowerCaseName.startsWith("authorization")
+            || lowerCaseName.startsWith("cookie")
+            || lowerCaseName.startsWith("x-tt-token")
+            || lowerCaseName.startsWith("x-tt-argon")
+            || lowerCaseName.startsWith("x-tt-uuid");
     }
 
     private void removeHeaderIgnoreCase(Map<String, String> headers, String name) {
