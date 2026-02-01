@@ -18,7 +18,7 @@ import java.util.regex.Pattern;
 
 /**
  * 单章接口的抗风控优化：
- * - 根据目录预取一段章节（批量调用上游 batch_full）
+ * - 根据目录预取一段章节（调用上游 batch_full）
  * - 将结果缓存，后续单章请求直接命中缓存，显著减少上游调用次数
  */
 @Slf4j
@@ -65,7 +65,7 @@ public class FQChapterPrefetchService {
                     return FQNovelResponse.success(cached);
                 }
 
-                // 预取：优先在目录中定位章节顺序，批量拉取后缓存
+                // 预取：优先在目录中定位章节顺序，拉取后缓存
                 prefetchAndCacheDedup(bookId, chapterId).join();
 
                 cached = chapterCache.getIfPresent(cacheKey);
@@ -168,7 +168,7 @@ public class FQChapterPrefetchService {
             batchIds = itemIds.subList(index, endExclusive);
         }
 
-        // 批量拉取并解密
+        // 拉取并解密
         String joined = String.join(",", batchIds);
         FQNovelResponse<FqIBatchFullResponse> batch = fqNovelService.batchFull(joined, bookId, true).get();
         if (batch.getCode() != 0 || batch.getData() == null || batch.getData().getData() == null) {

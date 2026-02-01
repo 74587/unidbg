@@ -5,7 +5,7 @@ import lombok.Data;
 import java.util.Map;
 
 /**
- * FQNovel 批量获取响应
+ * FQNovel 上游 batch_full 响应
  * 对应 Rust 中的 FqIBatchFullResponse 结构
  */
 @Data

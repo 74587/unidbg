@@ -20,15 +20,6 @@ public final class FQConstants {
          */
         public static final int MAX_CHAPTER_POSITION = 10000;
 
-        /**
-         * 批量获取章节的最大数量
-         */
-        public static final int MAX_BATCH_SIZE = 30;
-
-        /**
-         * 批量获取章节的最小数量
-         */
-        public static final int MIN_BATCH_SIZE = 1;
     }
 
     /**

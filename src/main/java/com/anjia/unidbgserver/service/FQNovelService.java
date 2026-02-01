@@ -82,12 +82,12 @@ public class FQNovelService {
     }
 
     /**
-     * 批量获取章节内容 (基于 fqnovel-api 的 batch_full 方法)
+     * 获取章节内容 (基于 fqnovel-api 的 batch_full 方法)
      *
      * @param itemIds 章节ID列表，逗号分隔
      * @param bookId 书籍ID
      * @param download 是否下载模式 (false=在线阅读, true=下载)
-     * @return 批量内容响应
+     * @return 内容响应
      */
     public CompletableFuture<FQNovelResponse<FqIBatchFullResponse>> batchFull(String itemIds, String bookId, boolean download) {
         return CompletableFuture.supplyAsync(() -> {
@@ -185,22 +185,22 @@ public class FQNovelService {
                             autoRestartService.recordFailure(reason);
                         }
                         if (retryable && illegal) {
-                            return FQNovelResponse.error("批量获取章节内容失败: ILLEGAL_ACCESS（已重试仍失败，建议更换设备/降低频率）");
+                            return FQNovelResponse.error("获取章节内容失败: ILLEGAL_ACCESS（已重试仍失败，建议更换设备/降低频率）");
                         }
                         if (retryable && gzipErr) {
-                            return FQNovelResponse.error("批量获取章节内容失败: 响应格式异常（已重试仍失败）");
+                            return FQNovelResponse.error("获取章节内容失败: 响应格式异常（已重试仍失败）");
                         }
                         if (retryable && nonJson) {
-                            return FQNovelResponse.error("批量获取章节内容失败: 上游返回非JSON（已重试仍失败）");
+                            return FQNovelResponse.error("获取章节内容失败: 上游返回非JSON（已重试仍失败）");
                         }
                         if (retryable && empty) {
-                            return FQNovelResponse.error("批量获取章节内容失败: 空响应（已重试仍失败）");
+                            return FQNovelResponse.error("获取章节内容失败: 空响应（已重试仍失败）");
                         }
                         if (retryable && signerFail) {
-                            return FQNovelResponse.error("批量获取章节内容失败: 签名生成失败（已重试仍失败）");
+                            return FQNovelResponse.error("获取章节内容失败: 签名生成失败（已重试仍失败）");
                         }
-                        log.error("批量获取章节内容失败 - itemIds: {}", itemIds, e);
-                        return FQNovelResponse.error("批量获取章节内容失败: " + message);
+                        log.error("获取章节内容失败 - itemIds: {}", itemIds, e);
+                        return FQNovelResponse.error("获取章节内容失败: " + message);
                     }
 
                     if (retryable) {
@@ -227,11 +227,11 @@ public class FQNovelService {
                         Thread.sleep(delay);
                     } catch (InterruptedException ie) {
                         Thread.currentThread().interrupt();
-                        return FQNovelResponse.error("批量获取章节内容失败: 重试被中断");
+                        return FQNovelResponse.error("获取章节内容失败: 重试被中断");
                     }
                 }
             }
-            return FQNovelResponse.error("批量获取章节内容失败: 超过最大重试次数");
+            return FQNovelResponse.error("获取章节内容失败: 超过最大重试次数");
         }, taskExecutor);
     }
 
@@ -329,11 +329,11 @@ public class FQNovelService {
     public CompletableFuture<FQNovelResponse<List<Map.Entry<String, String>>>> getDecryptedContents(String itemIds, String bookId, boolean download) {
         return CompletableFuture.supplyAsync(() -> {
             try {
-                // 先获取批量内容
+                // 先获取内容
                 FQNovelResponse<FqIBatchFullResponse> batchResponse = batchFull(itemIds, bookId, download).get();
 
                 if (batchResponse.getCode() != 0 || batchResponse.getData() == null) {
-                    return FQNovelResponse.error("获取批量内容失败: " + batchResponse.getMessage());
+                    return FQNovelResponse.error("获取内容失败: " + batchResponse.getMessage());
                 }
 
                 // 解密内容
@@ -483,324 +483,6 @@ public class FQNovelService {
         }
 
         return textBuilder.toString().trim();
-    }
-
-    /**
-     * 批量获取章节内容 (新功能)
-     *
-     * @param request 批量章节请求
-     * @return 批量章节响应
-     */
-    public CompletableFuture<FQNovelResponse<FQBatchChapterResponse>> getBatchChapterContent(FQBatchChapterRequest request) {
-        return CompletableFuture.supplyAsync(() -> {
-            try {
-                // 验证参数
-                if (request.getBookId() == null || request.getBookId().trim().isEmpty()) {
-                    return FQNovelResponse.error("书籍ID不能为空");
-                }
-
-                if ((request.getChapterRange() == null || request.getChapterRange().trim().isEmpty())&& request.getChapterIds() == null) {
-                    return FQNovelResponse.error("章节范围或章节ids不能为空");
-                }
-
-                List<String> itemIds = new ArrayList<>();
-                List<String> chapterIds;
-
-                if (request.getChapterIds() != null && !request.getChapterIds().isEmpty()) {
-                    // 如果提供了章节ID列表，直接使用
-                    itemIds = request.getChapterIds();
-                    chapterIds = request.getChapterIds();
-                    if (chapterIds.size() < FQConstants.Chapter.MIN_BATCH_SIZE
-                        || chapterIds.size() > FQConstants.Chapter.MAX_BATCH_SIZE) {
-                        return FQNovelResponse.error("章节数量必须在" + FQConstants.Chapter.MIN_BATCH_SIZE
-                            + "-" + FQConstants.Chapter.MAX_BATCH_SIZE + "之间，当前请求: " + chapterIds.size());
-                    }
-                } else {
-                    // 否则使用章节范围字符串
-                    chapterIds = parseChapterRange(request.getChapterRange());
-                    if (chapterIds.isEmpty()) {
-                        return FQNovelResponse.error("无效的章节范围格式");
-                    }
-
-                    // 验证章节数量限制
-                    if (chapterIds.size() < FQConstants.Chapter.MIN_BATCH_SIZE 
-                        || chapterIds.size() > FQConstants.Chapter.MAX_BATCH_SIZE) {
-                        return FQNovelResponse.error("章节数量必须在" + FQConstants.Chapter.MIN_BATCH_SIZE 
-                            + "-" + FQConstants.Chapter.MAX_BATCH_SIZE + "之间，当前请求: " + chapterIds.size());
-                    }
-
-                    if (isChapterPositions(chapterIds)) {
-                        // 输入是章节位置(如1,2,3)，需要通过目录API获取实际的itemIds
-                        itemIds = getItemIdsByChapterPositions(request.getBookId(), chapterIds);
-                    }
-                }
-
-                if (itemIds.isEmpty()) {
-                    return FQNovelResponse.error("无法获取章节对应的itemIds，请检查章节范围是否有效");
-                }
-
-                // 调用批量获取API
-                String itemIdsStr = String.join(",", itemIds);
-                FQNovelResponse<FqIBatchFullResponse> batchResponse = batchFull(itemIdsStr, request.getBookId(), true).get();
-
-                if (batchResponse.getCode() != 0 || batchResponse.getData() == null) {
-                    return FQNovelResponse.error("获取批量章节内容失败: " + batchResponse.getMessage());
-                }
-
-                FqIBatchFullResponse batchFullResponse = batchResponse.getData();
-                Map<String, ItemContent> dataMap = batchFullResponse.getData();
-
-                if (dataMap == null) {
-                    dataMap = new HashMap<>();
-                }
-
-                // 构建响应
-                FQBatchChapterResponse response = new FQBatchChapterResponse();
-                response.setBookId(request.getBookId());
-                response.setRequestedRange(request.getChapterRange());
-                response.setTotalRequested(chapterIds.size());
-                // 获取任意一个可用的novelData信息
-                ItemContent firstItem = null;
-                for (String itemId : itemIds) {
-                    ItemContent candidate = dataMap.get(itemId);
-                    if (candidate != null && candidate.getNovelData() != null) {
-                        firstItem = candidate;
-                        break;
-                    }
-                }
-                if (firstItem == null) {
-                    return FQNovelResponse.error("获取批量章节内容失败: 上游数据不完整");
-                }
-                FQNovelData novelData = firstItem.getNovelData();
-
-                // 构建书籍信息 (简化版本)
-                FQNovelBookInfo bookInfo = new FQNovelBookInfo();
-                bookInfo.setBookId(request.getBookId());
-                bookInfo.setBookName(novelData.getBookName());
-                bookInfo.setAuthor(novelData.getAuthor());
-                bookInfo.setCoverUrl(novelData.getThumbUrl());
-                bookInfo.setStatus(novelData.getStatus());
-                // 使用content_chapter_number字段获取章节数，而不是wordNumber（字数）
-                Integer contentChapterNumber = novelData.getContentChapterNumber();
-                bookInfo.setTotalChapters(contentChapterNumber != null ? contentChapterNumber : 0);
-                response.setBookInfo(bookInfo);
-
-                // 处理每个章节
-                Map<String, FQBatchChapterInfo> chaptersMap = new LinkedHashMap<>();
-                int successCount = 0;
-                Map<String, Integer> itemIndexMap = new HashMap<>();
-                if (isChapterPositions(chapterIds)) {
-                    for (int i = 0; i < itemIds.size(); i++) {
-                        itemIndexMap.put(itemIds.get(i), i);
-                    }
-                }
-
-                for (String itemId : itemIds) {
-                    try {
-                        ItemContent itemContent = dataMap.get(itemId);
-
-                        if (itemContent == null) {
-                            log.warn("未找到章节内容 - itemId: {}", itemId);
-                            continue;
-                        }
-
-                        // 解密章节内容
-                        String decryptedContent = "";
-                        try {
-                            Long contentKeyver = itemContent.getKeyVersion();
-                            String key = registerKeyService.getDecryptionKey(contentKeyver);
-                            decryptedContent = FqCrypto.decryptAndDecompressContent(itemContent.getContent(), key);
-                        } catch (Exception e) {
-                            log.error("解密章节内容失败 - itemId: {}", itemId, e);
-                            continue;
-                        }
-
-                        // 提取纯文本内容
-                        String txtContent = extractTextFromHtml(decryptedContent);
-
-                        // 提取章节标题
-                        String title = itemContent.getTitle();
-                        if (title == null || title.trim().isEmpty()) {
-                            // 从HTML中提取标题
-                            Pattern titlePattern = Pattern.compile("<h1[^>]*>.*?<blk[^>]*>([^<]*)</blk>.*?</h1>",
-                                Pattern.CASE_INSENSITIVE | Pattern.DOTALL);
-                            Matcher titleMatcher = titlePattern.matcher(decryptedContent);
-                            if (titleMatcher.find()) {
-                                title = titleMatcher.group(1).trim();
-                            } else {
-                                title = "章节 " + itemId;
-                            }
-                        }
-
-                        // 构建章节信息
-                        FQBatchChapterInfo chapterInfo = new FQBatchChapterInfo();
-                        chapterInfo.setChapterName(title);
-                        chapterInfo.setRawContent(decryptedContent);
-                        chapterInfo.setTxtContent(txtContent);
-                        chapterInfo.setWordCount(txtContent.length());
-                        chapterInfo.setIsFree(true);
-
-                        // 使用对应的章节位置作为key（如果是章节位置模式）
-                        String chapterKey;
-                        if (isChapterPositions(chapterIds)) {
-                            // 找到这个itemId对应的章节位置
-                            int itemIndex = itemIndexMap.getOrDefault(itemId, -1);
-                            if (itemIndex >= 0 && itemIndex < chapterIds.size()) {
-                                chapterKey = chapterIds.get(itemIndex);
-                            } else {
-                                chapterKey = itemId;
-                            }
-                        } else {
-                            chapterKey = itemId;
-                        }
-
-                        chaptersMap.put(chapterKey, chapterInfo);
-                        successCount++;
-
-                    } catch (Exception e) {
-                        log.error("处理章节失败 - itemId: {}", itemId, e);
-                    }
-                }
-
-                response.setChapters(chaptersMap);
-                response.setSuccessCount(successCount);
-
-                return FQNovelResponse.success(response);
-
-            } catch (Exception e) {
-                log.error("批量获取章节内容失败 - bookId: {}, range: {}",
-                    request.getBookId(), request.getChapterRange(), e);
-                return FQNovelResponse.error("批量获取章节内容失败: " + e.getMessage());
-            }
-        }, taskExecutor);
-    }
-
-    /**
-     * 解析章节范围字符串
-     * 支持格式: "1-30", "5", "5-5"
-     *
-     * @param rangeStr 章节范围字符串
-     * @return 章节ID列表
-     */
-    private List<String> parseChapterRange(String rangeStr) {
-        List<String> chapterIds = new ArrayList<>();
-
-        try {
-            rangeStr = rangeStr.trim();
-
-            if (rangeStr.contains("-")) {
-                // 范围格式: "1-30"
-                String[] parts = rangeStr.split("-");
-                if (parts.length == 2) {
-                    int start = Integer.parseInt(parts[0].trim());
-                    int end = Integer.parseInt(parts[1].trim());
-
-                    if (start <= end && start > 0 && end > 0) {
-                        for (int i = start; i <= end; i++) {
-                            chapterIds.add(String.valueOf(i));
-                        }
-                    }
-                }
-            } else {
-                // 单个章节格式: "5"
-                int chapterNum = Integer.parseInt(rangeStr);
-                if (chapterNum > 0) {
-                    chapterIds.add(String.valueOf(chapterNum));
-                }
-            }
-        } catch (NumberFormatException e) {
-            log.error("解析章节范围失败: {}", rangeStr, e);
-        }
-
-        return chapterIds;
-    }
-
-    /**
-     * 判断输入的ID列表是否为章节位置（而非itemIds）
-     * 章节位置通常是小的数字（1, 2, 3等），而itemIds是长字符串
-     *
-     * @param ids ID列表
-     * @return true如果是章节位置，false如果是itemIds
-     */
-    private boolean isChapterPositions(List<String> ids) {
-        if (ids == null || ids.isEmpty()) {
-            return false;
-        }
-
-        // 检查所有ID是否都是小的正整数（通常章节位置不会超过配置的最大值）
-        for (String id : ids) {
-            try {
-                int num = Integer.parseInt(id);
-                if (num <= 0 || num > FQConstants.Chapter.MAX_CHAPTER_POSITION) {
-                    return false;
-                }
-            } catch (NumberFormatException e) {
-                // 如果无法解析为数字，说明可能是itemId（长字符串）
-                return false;
-            }
-        }
-
-        return true;
-    }
-
-    /**
-     * 根据章节位置获取对应的itemIds
-     *
-     * @param bookId 书籍ID
-     * @param chapterPositions 章节位置列表（如["1", "2", "3"]）
-     * @return 对应的itemIds列表
-     */
-    private List<String> getItemIdsByChapterPositions(String bookId, List<String> chapterPositions) {
-        List<String> itemIds = new ArrayList<>();
-
-        try {
-            // 构建目录请求
-            FQDirectoryRequest directoryRequest = new FQDirectoryRequest();
-            directoryRequest.setBookId(bookId);
-            directoryRequest.setBookType(0);
-            directoryRequest.setNeedVersion(true);
-
-            // 获取书籍目录
-            FQNovelResponse<FQDirectoryResponse> directoryResponse = fqSearchService.getBookDirectory(directoryRequest).get();
-
-            if (directoryResponse.getCode() != 0 || directoryResponse.getData() == null) {
-                log.error("获取书籍目录失败 - bookId: {}, error: {}", bookId, directoryResponse.getMessage());
-                return itemIds;
-            }
-
-            List<FQDirectoryResponse.CatalogItem> catalogItems = directoryResponse.getData().getCatalogData();
-            if (catalogItems == null || catalogItems.isEmpty()) {
-                log.error("书籍目录为空 - bookId: {}", bookId);
-                return itemIds;
-            }
-
-            // 构建章节位置到itemId的映射
-            // 目录中的章节按顺序排列，第1章对应索引0，第2章对应索引1，以此类推
-            for (String positionStr : chapterPositions) {
-                try {
-                    int position = Integer.parseInt(positionStr);
-                    int index = position - 1; // 转换为0基索引
-
-                    if (index >= 0 && index < catalogItems.size()) {
-                        String itemId = catalogItems.get(index).getItemId();
-                        if (itemId != null && !itemId.trim().isEmpty()) {
-                            itemIds.add(itemId);
-                        } else {
-                            log.warn("章节位置 {} 对应的itemId为空 - bookId: {}", position, bookId);
-                        }
-                    } else {
-                        log.warn("章节位置 {} 超出范围，总章节数: {} - bookId: {}", position, catalogItems.size(), bookId);
-                    }
-                } catch (NumberFormatException e) {
-                    log.error("无效的章节位置: {} - bookId: {}", positionStr, bookId, e);
-                }
-            }
-
-        } catch (Exception e) {
-            log.error("获取章节itemIds失败 - bookId: {}, positions: {}", bookId, chapterPositions, e);
-        }
-
-        return itemIds;
     }
 
     /**

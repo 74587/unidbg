@@ -4,8 +4,6 @@ import com.anjia.unidbgserver.dto.FQNovelBookInfo;
 import com.anjia.unidbgserver.dto.FQNovelChapterInfo;
 import com.anjia.unidbgserver.dto.FQNovelRequest;
 import com.anjia.unidbgserver.dto.FQNovelResponse;
-import com.anjia.unidbgserver.dto.FQBatchChapterRequest;
-import com.anjia.unidbgserver.dto.FQBatchChapterResponse;
 import com.anjia.unidbgserver.service.FQChapterPrefetchService;
 import com.anjia.unidbgserver.service.FQNovelService;
 import lombok.extern.slf4j.Slf4j;
@@ -134,27 +132,6 @@ public class FQNovelController {
         
         return fqChapterPrefetchService.getChapterContent(request);
     }
-
-
-
-    /**
-     * 批量获取章节内容 (新功能)
-     * 
-     * @param request 批量章节请求
-     * @return 批量章节响应，以章节ID为键，包含原始内容、纯文本内容、章节名和字数
-     */
-    @PostMapping("/chapters/batch")
-    public CompletableFuture<FQNovelResponse<FQBatchChapterResponse>> getBatchChapterContent(
-            @RequestBody FQBatchChapterRequest request) {
-        
-        if (log.isDebugEnabled()) {
-            log.debug("批量获取章节内容请求 - bookId: {}, range: {}", 
-                request.getBookId(), request.getChapterRange());
-        }
-        
-        return fqNovelService.getBatchChapterContent(request);
-    }
-
     /**
      * 从HTTP请求中提取额外的请求头
      * 过滤掉标准请求头，只保留自定义头

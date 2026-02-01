@@ -143,6 +143,10 @@
                 <configuration>
                     <source>1.8</source>
                     <target>1.8</target>
+                    <!-- Suppress noisy javac option warning: "bootstrap class path not set in conjunction with -source 8" -->
+                    <compilerArgs>
+                        <arg>-Xlint:-options</arg>
+                    </compilerArgs>
                     <annotationProcessorPaths>
                         <path>
                             <groupId>org.mapstruct</groupId>
