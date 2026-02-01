@@ -25,6 +25,7 @@ public interface BookInfoMapper {
     @Mapping(target = "bookId", source = "bookId")
     @Mapping(target = "description", source = "resp.abstractContent")
     @Mapping(target = "status", source = "resp.status")
+    @Mapping(target = "coverUrl", source = "resp.thumbUrl")
     @Mapping(target = "totalChapters", ignore = true) // 需要特殊处理
     @Mapping(target = "authorInfo", ignore = true) // 需要特殊处理
     FQNovelBookInfo toBookInfo(FQNovelBookInfoResp resp, String bookId);

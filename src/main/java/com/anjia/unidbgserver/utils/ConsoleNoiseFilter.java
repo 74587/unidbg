@@ -76,15 +76,19 @@ public final class ConsoleNoiseFilter {
             delegate.write(lineBytes);
         }
 
-        private boolean shouldDrop(String line) {
-            if (line == null || line.isEmpty()) {
-                return false;
-            }
-            // 典型噪音输出（来源：libmetasec_ml.so）
-            return line.contains("E/METASEC:")
-                || line.contains("MSTaskManager::DoLazyInit()")
-                || line.contains("SDK not init, crashing");
-        }
-    }
-}
-
+	        private boolean shouldDrop(String line) {
+	            if (line == null) {
+	                return false;
+	            }
+	            String trimmed = line.trim();
+	            if (trimmed.isEmpty()) {
+	                return false;
+	            }
+	            // 典型噪音输出（来源：libmetasec_ml.so）
+	            String upper = trimmed.toUpperCase();
+	            return upper.contains("METASEC")
+	                || trimmed.contains("MSTaskManager::DoLazyInit()")
+	                || trimmed.contains("SDK not init, crashing");
+	        }
+	    }
+	}
