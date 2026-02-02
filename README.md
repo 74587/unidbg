@@ -26,10 +26,6 @@ java -jar target/fqnovel.jar
 ```bash
 docker run -d --name fqnovel --restart=unless-stopped -p 9999:9999 gxmandppx/unidbg-fq:latest
 ```
-## 使用python脚本下载TXT
-```bash
-python download_book.py 书籍ID "书名"
-```
 
 ## 免责声明
 
