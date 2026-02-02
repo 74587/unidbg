@@ -81,7 +81,8 @@ public class FQApiUtils {
         // batchFull特定参数
         params.put("item_ids", itemIds);
         params.put("key_register_ts", var.getKeyRegisterTs());
-        params.put("book_id", bookId != null ? bookId : "7276384138653862966");
+        // bookId 是必填参数；若上层未传入则保持为空，避免误用固定 bookId 导致请求错书
+        params.put("book_id", bookId);
         params.put("req_type", download ? "0" : "1");
 
         return params;
