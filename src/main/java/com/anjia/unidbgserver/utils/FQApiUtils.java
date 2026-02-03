@@ -292,9 +292,20 @@ public Map<String, String> buildSearchParams(FqVariable var, FQSearchRequest sea
         Map<String, String> params = buildCommonApiParams(var);
 
         // 目录特定参数
-        params.put("book_type", String.valueOf(directoryRequest.getBookType()));
-        params.put("book_id", directoryRequest.getBookId());
-        params.put("need_version", String.valueOf(directoryRequest.getNeedVersion()));
+        if (directoryRequest == null) {
+            params.put("book_type", "0");
+            params.put("book_id", "");
+            params.put("need_version", String.valueOf(Boolean.TRUE));
+            return params;
+        }
+
+        Integer bookType = directoryRequest.getBookType();
+        Boolean needVersion = directoryRequest.getNeedVersion();
+        String bookId = directoryRequest.getBookId();
+
+        params.put("book_type", String.valueOf(bookType != null ? bookType : 0));
+        params.put("book_id", bookId != null ? bookId : "");
+        params.put("need_version", String.valueOf(needVersion != null ? needVersion : Boolean.TRUE));
 
         // 可选MD5参数
         if (directoryRequest.getItemDataListMd5() != null) {

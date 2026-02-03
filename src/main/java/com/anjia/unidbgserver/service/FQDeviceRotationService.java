@@ -123,9 +123,9 @@ public class FQDeviceRotationService {
                 // 兜底：探测全失败时，仍按原逻辑使用当前 selectedIndex
                 FQApiProperties.DeviceProfile fallback = pool.get(selectedIndex);
                 applyDeviceProfile(fallback);
-                log.warn("启动设备探测全部失败，回退使用设备池设备：name={}", fallback != null ? fallback.getName() : null);
+                log.warn("启动设备探测失败，回退设备：设备名={}", fallback != null ? fallback.getName() : null);
             } else {
-                log.info("启动设备探测通过：selectedIndex={}, attempts={}", selectedIndex, attempt);
+                log.info("启动设备探测通过：选中序号={}, 尝试次数={}", selectedIndex, attempt);
             }
         } else {
             FQApiProperties.DeviceProfile selected = pool.get(selectedIndex);
@@ -138,7 +138,7 @@ public class FQDeviceRotationService {
         String name = selected != null ? selected.getName() : null;
         String deviceId = selected != null && selected.getDevice() != null ? selected.getDevice().getDeviceId() : null;
         String installId = selected != null && selected.getDevice() != null ? selected.getDevice().getInstallId() : null;
-        log.info("启动已选择设备池设备：name={}, deviceId={}, installId={}", name, deviceId, installId);
+        log.info("启动选择设备：设备名={}, 设备ID={}, 安装ID={}", name, deviceId, installId);
     }
 
     private int findByName(List<FQApiProperties.DeviceProfile> pool, String name) {
@@ -187,8 +187,8 @@ public class FQDeviceRotationService {
             }
 
             HttpHeaders httpHeaders = new HttpHeaders();
-            signedHeaders.forEach(httpHeaders::set);
             headers.forEach(httpHeaders::set);
+            signedHeaders.forEach(httpHeaders::set);
             HttpEntity<String> entity = new HttpEntity<>(httpHeaders);
 
             ResponseEntity<byte[]> response = restTemplate.exchange(URI.create(fullUrl), HttpMethod.GET, entity, byte[].class);
@@ -304,7 +304,7 @@ public class FQDeviceRotationService {
 
             DeviceInfo deviceInfo = rotateFromConfiguredPool(reason);
             if (deviceInfo == null) {
-                log.warn("检测到风控/异常，但未配置 fq.api.device-pool，无法自动切换设备：reason={}", reason);
+                log.warn("检测到异常，但未配置 fq.api.device-pool，无法自动切换设备：原因={}", reason);
                 return null;
             }
 
@@ -363,7 +363,7 @@ public class FQDeviceRotationService {
         String name = profile.getName();
         String deviceId = profile.getDevice() != null ? profile.getDevice().getDeviceId() : null;
         String installId = profile.getDevice() != null ? profile.getDevice().getInstallId() : null;
-        log.warn("检测到风控/异常，已从配置池切换设备：index={}, name={}, deviceId={}, installId={}, reason={}",
+        log.warn("检测到异常，已切换设备：序号={}, 设备名={}, 设备ID={}, 安装ID={}, 原因={}",
             idx, name, deviceId, installId, reason);
 
         lastRotateReason = reason != null ? reason : "";

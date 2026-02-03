@@ -85,8 +85,8 @@ public class FQRegisterKeyService {
 
         // 如果当前缓存的key的keyver不匹配，需要刷新
         if (currentRegisterKey == null || currentRegisterKey.getData().getKeyver() != normalizedKeyver) {
-            log.info("当前registerkey keyver ({}) 与需要的keyver ({}) 不匹配，刷新registerkey...",
-                    currentRegisterKey != null ? currentRegisterKey.getData().getKeyver() : "null",
+            log.info("registerkey 版本不匹配，刷新：当前keyver={}，需要keyver={}...",
+                    currentRegisterKey != null ? currentRegisterKey.getData().getKeyver() : "无",
                     normalizedKeyver);
             return refreshRegisterKey();
         }
@@ -148,8 +148,8 @@ public class FQRegisterKeyService {
 
         // 发起API请求
         HttpHeaders httpHeaders = new HttpHeaders();
-        signedHeaders.forEach(httpHeaders::set);
         headers.forEach(httpHeaders::set);
+        signedHeaders.forEach(httpHeaders::set);
 
         // 创建请求载荷
         FqRegisterKeyPayload payload = buildRegisterKeyPayload(var);

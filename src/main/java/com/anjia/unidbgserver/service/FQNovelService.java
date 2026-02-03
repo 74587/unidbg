@@ -2,7 +2,6 @@ package com.anjia.unidbgserver.service;
 
 import com.anjia.unidbgserver.config.FQApiProperties;
 import com.anjia.unidbgserver.config.FQDownloadProperties;
-import com.anjia.unidbgserver.constants.FQConstants;
 import com.anjia.unidbgserver.dto.*;
 import com.anjia.unidbgserver.utils.FQApiUtils;
 import com.anjia.unidbgserver.utils.GzipUtils;
@@ -15,11 +14,8 @@ import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestTemplate;
 
 import javax.annotation.Resource;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.LinkedHashMap;
-import java.util.ArrayList;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executor;
 import java.util.concurrent.ThreadLocalRandom;
@@ -90,6 +86,19 @@ public class FQNovelService {
      * @return 内容响应
      */
     public CompletableFuture<FQNovelResponse<FqIBatchFullResponse>> batchFull(String itemIds, String bookId, boolean download) {
+        return batchFull(itemIds, bookId, download, null);
+    }
+
+    /**
+     * 获取章节内容 (基于 fqnovel-api 的 batch_full 方法)
+     *
+     * @param itemIds 章节ID列表，逗号分隔
+     * @param bookId 书籍ID
+     * @param download 是否下载模式 (false=在线阅读, true=下载)
+     * @param token 用户 token（可选，用于付费章节；会参与签名）
+     * @return 内容响应
+     */
+    public CompletableFuture<FQNovelResponse<FqIBatchFullResponse>> batchFull(String itemIds, String bookId, boolean download, String token) {
         return CompletableFuture.supplyAsync(() -> {
             if (ProcessLifecycle.isShuttingDown()) {
                 return FQNovelResponse.error("服务正在退出中，请稍后重试");
@@ -110,6 +119,7 @@ public class FQNovelService {
 
                     // 使用工具类构建请求头
                     Map<String, String> headers = fqApiUtils.buildCommonHeaders();
+                    headers = withOptionalToken(headers, token);
 
                     // 使用现有的签名服务生成签名
                     upstreamRateLimiter.acquire();
@@ -120,8 +130,8 @@ public class FQNovelService {
 
                     // 发起API请求
                     HttpHeaders httpHeaders = new HttpHeaders();
-                    signedHeaders.forEach(httpHeaders::set);
                     headers.forEach(httpHeaders::set);
+                    signedHeaders.forEach(httpHeaders::set);
 
                     HttpEntity<String> entity = new HttpEntity<>(httpHeaders);
                     ResponseEntity<byte[]> response = restTemplate.exchange(fullUrl, HttpMethod.GET, entity, byte[].class);
@@ -233,6 +243,31 @@ public class FQNovelService {
             }
             return FQNovelResponse.error("获取章节内容失败: 超过最大重试次数");
         }, taskExecutor);
+    }
+
+    private static Map<String, String> withOptionalToken(Map<String, String> headers, String token) {
+        if (headers == null) {
+            return headers;
+        }
+        if (token == null || token.trim().isEmpty()) {
+            return headers;
+        }
+        String trimmed = token.trim();
+
+        // 尽量保持 header 顺序稳定：将 token 放在 cookie 后面
+        Map<String, String> ordered = new java.util.LinkedHashMap<>();
+        boolean inserted = false;
+        for (Map.Entry<String, String> entry : headers.entrySet()) {
+            ordered.put(entry.getKey(), entry.getValue());
+            if (!inserted && "cookie".equalsIgnoreCase(entry.getKey())) {
+                ordered.put("x-tt-token", trimmed);
+                inserted = true;
+            }
+        }
+        if (!inserted) {
+            ordered.put("x-tt-token", trimmed);
+        }
+        return ordered;
     }
 
     private static boolean isIllegalAccess(long code, String message, String rawBody) {
@@ -364,7 +399,7 @@ public class FQNovelService {
 
                 // 使用batch_full API获取完整响应数据
                 String itemIds = request.getChapterId();
-                FQNovelResponse<FqIBatchFullResponse> batchResponse = batchFull(itemIds, request.getBookId(), false).get();
+                FQNovelResponse<FqIBatchFullResponse> batchResponse = batchFull(itemIds, request.getBookId(), false, request.getToken()).get();
 
                 if (batchResponse.getCode() != 0 || batchResponse.getData() == null) {
                     return FQNovelResponse.error("获取章节内容失败: " + batchResponse.getMessage());

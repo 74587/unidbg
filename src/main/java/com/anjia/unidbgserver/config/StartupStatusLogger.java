@@ -26,16 +26,15 @@ public class StartupStatusLogger {
         String installId = fqApiProperties.getDevice() != null ? fqApiProperties.getDevice().getInstallId() : null;
         int poolSize = fqApiProperties.getDevicePool() != null ? fqApiProperties.getDevicePool().size() : 0;
 
-        log.info("运行配置：devicePoolSize={}, activePoolName={}, deviceId={}, installId={}", poolSize, poolName, deviceId, installId);
+        log.info("运行配置：设备池大小={}, 当前设备={}, 设备ID={}, 安装ID={}", poolSize, poolName, deviceId, installId);
 
         Map<String, Object> cache = registerKeyService.getCacheStatus();
-        log.info("运行配置：registerkey cache: {}", cache);
+        log.info("运行配置：registerkey 缓存={}", cache);
 
         long lastRotateAt = deviceRotationService.getLastRotateAtMs();
         if (lastRotateAt > 0) {
-            log.info("运行配置：lastRotateAtMs={}, lastRotateReason={}, lastRotateProfileName={}",
+            log.info("运行配置：上次切换时间Ms={}, 上次原因={}, 上次设备={}",
                 lastRotateAt, deviceRotationService.getLastRotateReason(), deviceRotationService.getLastRotateProfileName());
         }
     }
 }
-

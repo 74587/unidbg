@@ -13,6 +13,7 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ForkJoinPool;
 import java.util.concurrent.Executor;
+import java.security.MessageDigest;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -58,23 +59,31 @@ public class FQChapterPrefetchService {
             try {
                 String bookId = request.getBookId();
                 String chapterId = request.getChapterId();
+                String tokenScope = tokenScope(request.getToken());
+                boolean hasToken = !"t0".equals(tokenScope);
 
-                String cacheKey = cacheKey(bookId, chapterId);
+                String cacheKey = cacheKey(bookId, chapterId, tokenScope);
                 FQNovelChapterInfo cached = chapterCache.getIfPresent(cacheKey);
+                if (cached == null && hasToken) {
+                    cached = chapterCache.getIfPresent(cacheKey(bookId, chapterId, "t0"));
+                }
                 if (cached != null) {
                     return FQNovelResponse.success(cached);
                 }
 
                 // 预取：优先在目录中定位章节顺序，拉取后缓存
-                prefetchAndCacheDedup(bookId, chapterId).join();
+                prefetchAndCacheDedup(bookId, chapterId, request.getToken(), tokenScope).join();
 
                 cached = chapterCache.getIfPresent(cacheKey);
+                if (cached == null && hasToken) {
+                    cached = chapterCache.getIfPresent(cacheKey(bookId, chapterId, "t0"));
+                }
                 if (cached != null) {
                     return FQNovelResponse.success(cached);
                 }
 
                 // 兜底：仍未命中则只取单章
-                FQNovelResponse<FqIBatchFullResponse> single = fqNovelService.batchFull(chapterId, bookId, true).get();
+                FQNovelResponse<FqIBatchFullResponse> single = fqNovelService.batchFull(chapterId, bookId, true, request.getToken()).get();
                 if (single.getCode() != 0 || single.getData() == null) {
                     return FQNovelResponse.error("获取章节内容失败: " + single.getMessage());
                 }
@@ -102,7 +111,7 @@ public class FQChapterPrefetchService {
         }, executor != null ? executor : ForkJoinPool.commonPool());
     }
 
-    private CompletableFuture<Void> prefetchAndCacheDedup(String bookId, String chapterId) {
+    private CompletableFuture<Void> prefetchAndCacheDedup(String bookId, String chapterId, String token, String tokenScope) {
         String computedKey;
         try {
             computedKey = computePrefetchKey(bookId, chapterId);
@@ -110,7 +119,7 @@ public class FQChapterPrefetchService {
             // 目录失败时退化为单章 key，仍可去重并发的同章请求
             computedKey = bookId + ":single:" + chapterId;
         }
-        final String key = computedKey;
+        final String key = tokenScope + ":" + computedKey;
 
         CompletableFuture<Void> existing = inflightPrefetch.get(key);
         if (existing != null) {
@@ -126,7 +135,7 @@ public class FQChapterPrefetchService {
         // 注意：这里不能用与 getChapterContent 相同的线程池，否则在下载器高并发时容易出现“线程都在 join 等待”的死锁
         CompletableFuture.runAsync(() -> {
             try {
-                doPrefetchAndCache(bookId, chapterId);
+                doPrefetchAndCache(bookId, chapterId, token, tokenScope);
                 created.complete(null);
             } catch (Exception e) {
                 created.completeExceptionally(e);
@@ -152,7 +161,7 @@ public class FQChapterPrefetchService {
         return bookId + ":bucket:" + bucketStart + ":" + size;
     }
 
-    private void doPrefetchAndCache(String bookId, String chapterId) throws Exception {
+    private void doPrefetchAndCache(String bookId, String chapterId, String token, String tokenScope) throws Exception {
         List<String> itemIds = getDirectoryItemIds(bookId);
         if (itemIds == null || itemIds.isEmpty()) {
             return;
@@ -170,7 +179,7 @@ public class FQChapterPrefetchService {
 
         // 拉取并解密
         String joined = String.join(",", batchIds);
-        FQNovelResponse<FqIBatchFullResponse> batch = fqNovelService.batchFull(joined, bookId, true).get();
+        FQNovelResponse<FqIBatchFullResponse> batch = fqNovelService.batchFull(joined, bookId, true, token).get();
         if (batch.getCode() != 0 || batch.getData() == null || batch.getData().getData() == null) {
             return;
         }
@@ -182,7 +191,7 @@ public class FQChapterPrefetchService {
             }
             try {
                 FQNovelChapterInfo info = buildChapterInfo(bookId, itemId, content);
-                chapterCache.put(cacheKey(bookId, itemId), info);
+                chapterCache.put(cacheKey(bookId, itemId, tokenScope), info);
             } catch (Exception e) {
                 log.debug("预取章节处理失败 - bookId: {}, itemId: {}", bookId, itemId, e);
             }
@@ -300,8 +309,35 @@ public class FQChapterPrefetchService {
         return chapterInfo;
     }
 
-    private static String cacheKey(String bookId, String chapterId) {
-        return bookId + ":" + chapterId;
+    private static String tokenScope(String token) {
+        if (token == null) {
+            return "t0";
+        }
+        String trimmed = token.trim();
+        if (trimmed.isEmpty()) {
+            return "t0";
+        }
+        return "t" + shortSha256Hex(trimmed);
+    }
+
+    private static String cacheKey(String bookId, String chapterId, String tokenScope) {
+        return tokenScope + ":" + bookId + ":" + chapterId;
+    }
+
+    private static String shortSha256Hex(String value) {
+        try {
+            MessageDigest digest = MessageDigest.getInstance("SHA-256");
+            byte[] hash = digest.digest(value.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+            // 取前 6 bytes -> 12 hex chars，足够区分且避免暴露 token
+            StringBuilder sb = new StringBuilder(12);
+            for (int i = 0; i < 6 && i < hash.length; i++) {
+                sb.append(String.format(Locale.ROOT, "%02x", hash[i]));
+            }
+            return sb.toString();
+        } catch (Exception e) {
+            // 兜底：极少发生，退化为“有 token”但不区分不同 token
+            return "1";
+        }
     }
 
     private String extractTextFromHtml(String htmlContent) {

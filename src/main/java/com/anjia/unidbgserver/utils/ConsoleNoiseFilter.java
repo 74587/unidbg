@@ -9,7 +9,10 @@ import java.nio.charset.Charset;
 /**
  * 过滤第三方库输出到控制台的噪音日志（例如 unidbg/so 的 METASEC 打印）。
  *
- * 通过 -Dfq.log.filterConsoleNoise=false 可关闭。
+ * <p>可通过 JVM 参数控制：</p>
+ * <ul>
+ *   <li>-Dfq.log.filterConsoleNoise=false 关闭过滤</li>
+ * </ul>
  */
 public final class ConsoleNoiseFilter {
 
@@ -70,25 +73,28 @@ public final class ConsoleNoiseFilter {
             buffer.reset();
 
             String line = new String(lineBytes, charset);
+
             if (shouldDrop(line)) {
                 return;
             }
+
             delegate.write(lineBytes);
         }
 
-	        private boolean shouldDrop(String line) {
-	            if (line == null) {
-	                return false;
-	            }
-	            String trimmed = line.trim();
-	            if (trimmed.isEmpty()) {
-	                return false;
-	            }
-	            // 典型噪音输出（来源：libmetasec_ml.so）
-	            String upper = trimmed.toUpperCase();
-	            return upper.contains("METASEC")
-	                || trimmed.contains("MSTaskManager::DoLazyInit()")
-	                || trimmed.contains("SDK not init, crashing");
-	        }
-	    }
-	}
+        private boolean shouldDrop(String line) {
+            if (line == null) {
+                return false;
+            }
+            String trimmed = line.trim();
+            if (trimmed.isEmpty()) {
+                return false;
+            }
+
+            // 典型噪音输出（来源：libmetasec_ml.so）
+            String upper = trimmed.toUpperCase();
+            return upper.contains("METASEC")
+                || trimmed.contains("MSTaskManager::DoLazyInit()")
+                || trimmed.contains("SDK not init, crashing");
+        }
+    }
+}

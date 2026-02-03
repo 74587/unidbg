@@ -11,9 +11,6 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.*;
 
-import javax.servlet.http.HttpServletRequest;
-import java.util.HashMap;
-import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 
 /**
@@ -68,8 +65,7 @@ public class FQNovelController {
             @PathVariable String chapterId,
             @RequestParam(required = false) String deviceId,
             @RequestParam(required = false) String iid,
-            @RequestParam(required = false) String token,
-            HttpServletRequest httpRequest) {
+            @RequestParam(required = false) String token) {
         
         if (log.isDebugEnabled()) {
             log.debug("获取章节内容请求 - bookId: {}, chapterId: {}", bookId, chapterId);
@@ -94,10 +90,6 @@ public class FQNovelController {
         request.setDeviceId(deviceId);
         request.setIid(iid);
         request.setToken(token);
-        
-        // 提取额外的请求头
-        Map<String, String> extraHeaders = extractExtraHeaders(httpRequest);
-        request.setExtraHeaders(extraHeaders);
 
         // 单章接口容易触发风控：这里做目录预取 + 缓存，减少上游调用次数
         return fqChapterPrefetchService.getChapterContent(request);
@@ -129,59 +121,7 @@ public class FQNovelController {
                 FQNovelResponse.error("章节ID不能为空")
             );
         }
-        
-        return fqChapterPrefetchService.getChapterContent(request);
-    }
-    /**
-     * 从HTTP请求中提取额外的请求头
-     * 过滤掉标准请求头，只保留自定义头
-     */
-    private Map<String, String> extractExtraHeaders(HttpServletRequest request) {
-        Map<String, String> extraHeaders = new HashMap<>();
-        final int maxHeaderValueLength = 8192;
-        
-        // 这里可以根据需要提取特定的请求头
-        // 例如用户自定义的认证头、跟踪头等
-        java.util.Enumeration<String> headerNames = request.getHeaderNames();
-        
-        while (headerNames.hasMoreElements()) {
-            String headerName = headerNames.nextElement();
-            String headerValue = request.getHeader(headerName);
-            
-            // 过滤掉标准HTTP头，只保留自定义头
-            if (isCustomHeader(headerName)) {
-                if (headerValue != null && headerValue.length() > maxHeaderValueLength) {
-                    log.warn("忽略过长的自定义请求头 - name: {}, length: {}", headerName, headerValue.length());
-                    continue;
-                }
-                extraHeaders.put(headerName, headerValue);
-            }
-        }
-        
-        return extraHeaders;
-    }
 
-    /**
-     * 判断是否为自定义请求头
-     */
-    private boolean isCustomHeader(String headerName) {
-        if (headerName == null) {
-            return false;
-        }
-        
-        String lowerCaseName = headerName.toLowerCase();
-        
-        // 排除标准HTTP头
-        return !lowerCaseName.equals("host") &&
-               !lowerCaseName.equals("connection") &&
-               !lowerCaseName.equals("content-length") &&
-               !lowerCaseName.equals("content-type") &&
-               !lowerCaseName.equals("accept") &&
-               !lowerCaseName.equals("accept-encoding") &&
-               !lowerCaseName.equals("accept-language") &&
-               !lowerCaseName.equals("user-agent") &&
-               !lowerCaseName.startsWith("sec-") &&
-               // 包含自定义头，如以x-开头的头
-               (lowerCaseName.startsWith("x-") || lowerCaseName.startsWith("fq-"));
+        return fqChapterPrefetchService.getChapterContent(request);
     }
 }

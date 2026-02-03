@@ -32,9 +32,4 @@ public class FQNovelRequest {
      * 用户token (可选, 获取付费章节时需要)
      */
     private String token;
-    
-    /**
-     * 附加的请求头参数
-     */
-    private java.util.Map<String, String> extraHeaders;
 }

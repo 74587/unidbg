@@ -2,7 +2,6 @@
 <!DOCTYPE configuration>
 
 <configuration scan="true">
-    <include resource="org/springframework/boot/logging/logback/base.xml"/>
     <!-- File appender to capture runtime stacktraces -->
     <appender name="FILE" class="ch.qos.logback.core.rolling.RollingFileAppender">
         <file>${LOG_DIR:-logs}/spring-boot.log</file>
@@ -55,8 +54,53 @@
         <resetJUL>true</resetJUL>
     </contextListener>
 
+    <!-- Console (INFO): no level, no logger -->
+    <appender name="CONSOLE_INFO" class="ch.qos.logback.core.ConsoleAppender">
+        <filter class="ch.qos.logback.classic.filter.LevelFilter">
+            <level>INFO</level>
+            <onMatch>ACCEPT</onMatch>
+            <onMismatch>DENY</onMismatch>
+        </filter>
+        <encoder>
+            <pattern>%d{HH:mm:ss} - %msg%n</pattern>
+            <charset>UTF-8</charset>
+        </encoder>
+    </appender>
+
+    <!-- Console (DEBUG): show level, hide logger (only active if logger level is DEBUG) -->
+    <appender name="CONSOLE_DEBUG" class="ch.qos.logback.core.ConsoleAppender">
+        <filter class="ch.qos.logback.classic.filter.LevelFilter">
+            <level>DEBUG</level>
+            <onMatch>ACCEPT</onMatch>
+            <onMismatch>DENY</onMismatch>
+        </filter>
+        <encoder>
+            <pattern>%d{HH:mm:ss} DEBUG - %msg%n</pattern>
+            <charset>UTF-8</charset>
+        </encoder>
+    </appender>
+
+    <!-- Console (WARN+): keep level, hide logger -->
+    <appender name="CONSOLE_WARN" class="ch.qos.logback.core.ConsoleAppender">
+        <filter class="ch.qos.logback.classic.filter.ThresholdFilter">
+            <level>WARN</level>
+        </filter>
+        <encoder>
+            <pattern>%d{HH:mm:ss} %-5level - %msg%n</pattern>
+            <charset>UTF-8</charset>
+        </encoder>
+    </appender>
+
+    <!-- Startup status: keep message, hide logger prefix in console -->
+    <logger name="com.anjia.unidbgserver.config.StartupStatusLogger" level="INFO" additivity="false">
+        <appender-ref ref="CONSOLE_INFO"/>
+        <appender-ref ref="FILE"/>
+    </logger>
+
     <root level="INFO">
-        <appender-ref ref="CONSOLE"/>
+        <appender-ref ref="CONSOLE_INFO"/>
+        <appender-ref ref="CONSOLE_DEBUG"/>
+        <appender-ref ref="CONSOLE_WARN"/>
         <appender-ref ref="FILE"/>
     </root>
 

@@ -490,8 +490,8 @@ public class FQSearchService {
 
             // 发起API请求
             HttpHeaders httpHeaders = new HttpHeaders();
-            signedHeaders.forEach(httpHeaders::set);
             headers.forEach(httpHeaders::set);
+            signedHeaders.forEach(httpHeaders::set);
 
             HttpEntity<String> entity = new HttpEntity<>(httpHeaders);
             URI uri = URI.create(fullUrl);
@@ -596,8 +596,8 @@ public class FQSearchService {
 
                 // 发起API请求
                 HttpHeaders httpHeaders = new HttpHeaders();
-                signedHeaders.forEach(httpHeaders::set);
                 headers.forEach(httpHeaders::set);
+                signedHeaders.forEach(httpHeaders::set);
 
                 HttpEntity<String> entity = new HttpEntity<>(httpHeaders);
 
@@ -659,8 +659,8 @@ public class FQSearchService {
 
                 // 发起API请求
                 HttpHeaders httpHeaders = new HttpHeaders();
-                signedHeaders.forEach(httpHeaders::set);
                 headers.forEach(httpHeaders::set);
+                signedHeaders.forEach(httpHeaders::set);
 
                 HttpEntity<String> entity = new HttpEntity<>(httpHeaders);
                 upstreamRateLimiter.acquire();
@@ -1055,110 +1055,4 @@ public class FQSearchService {
 	        return book;
 	    }
 
-    /**
-     * 解析目录响应 - 基于实际API响应结构
-     */
-    private FQDirectoryResponse parseDirectoryResponse(JsonNode jsonResponse) {
-        FQDirectoryResponse directoryResponse = new FQDirectoryResponse();
-
-        if (jsonResponse.has("data")) {
-            JsonNode dataNode = jsonResponse.get("data");
-            // 解析附加数据列表
-            if (dataNode.has("additional_item_data_list")) {
-                directoryResponse.setAdditionalItemDataList(dataNode.get("additional_item_data_list"));
-            }
-
-            // 解析目录数据
-            if (dataNode.has("catalog_data") && dataNode.get("catalog_data").isArray()) {
-                List<FQDirectoryResponse.CatalogItem> catalogItems = new ArrayList<>();
-                for (JsonNode catalogNode : dataNode.get("catalog_data")) {
-                    FQDirectoryResponse.CatalogItem catalogItem = parseCatalogItem(catalogNode);
-                    catalogItems.add(catalogItem);
-                }
-                directoryResponse.setCatalogData(catalogItems);
-            }
-
-            // 解析章节详细数据列表
-            if (dataNode.has("item_data_list") && dataNode.get("item_data_list").isArray()) {
-                List<FQDirectoryResponse.ItemData> itemDataList = new ArrayList<>();
-                for (JsonNode itemNode : dataNode.get("item_data_list")) {
-                    FQDirectoryResponse.ItemData itemData = parseItemData(itemNode);
-                    itemDataList.add(itemData);
-                }
-                directoryResponse.setItemDataList(itemDataList);
-            }
-
-            // 解析字段缓存状态
-            if (dataNode.has("field_cache_status")) {
-                JsonNode cacheStatusNode = dataNode.get("field_cache_status");
-                FQDirectoryResponse.FieldCacheStatus cacheStatus = parseCacheStatus(cacheStatusNode);
-                directoryResponse.setFieldCacheStatus(cacheStatus);
-            }
-
-            // 解析连载数量
-            if (dataNode.has("serial_count")) {
-                directoryResponse.setSerialCount(dataNode.get("serial_count").asInt(0));
-            }
-
-        }
-
-        return directoryResponse;
-    }
-
-    /**
-     * 解析目录项目
-     */
-    private FQDirectoryResponse.CatalogItem parseCatalogItem(JsonNode catalogNode) {
-        FQDirectoryResponse.CatalogItem catalogItem = new FQDirectoryResponse.CatalogItem();
-
-        catalogItem.setCatalogId(catalogNode.path("catalog_id").asText(""));
-        catalogItem.setCatalogTitle(catalogNode.path("catalog_title").asText(""));
-        catalogItem.setItemId(catalogNode.path("item_id").asText(""));
-
-        return catalogItem;
-    }
-
-    /**
-     * 解析章节详细数据
-     */
-    private FQDirectoryResponse.ItemData parseItemData(JsonNode itemNode) {
-        FQDirectoryResponse.ItemData itemData = new FQDirectoryResponse.ItemData();
-
-        itemData.setItemId(itemNode.path("item_id").asText(""));
-        itemData.setVersion(itemNode.path("version").asText(""));
-        itemData.setContentMd5(itemNode.path("content_md5").asText(""));
-        itemData.setFirstPassTime(itemNode.path("first_pass_time").asInt(0));
-        itemData.setTitle(itemNode.path("title").asText(""));
-        itemData.setVolumeName(itemNode.path("volume_name").asText(""));
-        itemData.setChapterType(itemNode.path("chapter_type").asText(""));
-        itemData.setChapterWordNumber(itemNode.path("chapter_word_number").asInt(0));
-        itemData.setIsReview(itemNode.path("is_review").asBoolean(false));
-
-        return itemData;
-    }
-
-    /**
-     * 解析缓存状态
-     */
-    private FQDirectoryResponse.FieldCacheStatus parseCacheStatus(JsonNode cacheStatusNode) {
-        FQDirectoryResponse.FieldCacheStatus cacheStatus = new FQDirectoryResponse.FieldCacheStatus();
-
-        if (cacheStatusNode.has("book_info")) {
-            JsonNode bookInfoCacheNode = cacheStatusNode.get("book_info");
-            FQDirectoryResponse.CacheInfo bookInfoCache = new FQDirectoryResponse.CacheInfo();
-            bookInfoCache.setHit(bookInfoCacheNode.path("hit").asBoolean(false));
-            bookInfoCache.setMd5(bookInfoCacheNode.path("md5").asText(""));
-            cacheStatus.setBookInfo(bookInfoCache);
-        }
-
-        if (cacheStatusNode.has("item_data_list")) {
-            JsonNode itemDataCacheNode = cacheStatusNode.get("item_data_list");
-            FQDirectoryResponse.CacheInfo itemDataCache = new FQDirectoryResponse.CacheInfo();
-            itemDataCache.setHit(itemDataCacheNode.path("hit").asBoolean(false));
-            itemDataCache.setMd5(itemDataCacheNode.path("md5").asText(""));
-            cacheStatus.setItemDataList(itemDataCache);
-        }
-
-        return cacheStatus;
-    }
 }
