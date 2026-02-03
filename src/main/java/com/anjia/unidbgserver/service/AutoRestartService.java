@@ -6,6 +6,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 
 @Slf4j
@@ -18,6 +19,7 @@ public class AutoRestartService {
     private final FQRegisterKeyService registerKeyService;
 
     private final AtomicInteger errorCount = new AtomicInteger(0);
+    private final AtomicBoolean healing = new AtomicBoolean(false);
     private volatile long windowStartMs = 0L;
     private volatile long lastRestartAtMs = 0L;
     private volatile long lastSelfHealAtMs = 0L;
@@ -106,9 +108,16 @@ public class AutoRestartService {
             return false;
         }
 
+        if (healing.get()) {
+            return true;
+        }
+
         long cooldownMs = Math.max(0L, downloadProperties.getAutoRestartSelfHealCooldownMs());
         if (cooldownMs > 0 && now - lastSelfHealAtMs < cooldownMs) {
             return false;
+        }
+        if (!healing.compareAndSet(false, true)) {
+            return true;
         }
         lastSelfHealAtMs = now;
 
@@ -117,25 +126,29 @@ public class AutoRestartService {
         // 自愈逻辑放后台线程，避免阻塞当前业务线程；失败也不影响后续退回到 auto-restart。
         new Thread(() -> {
             try {
-                FQEncryptServiceWorker.requestGlobalReset("AUTO_SELF_HEAL:" + (reason != null ? reason : ""));
-            } catch (Throwable t) {
-                log.warn("自愈：请求重置 signer 失败", t);
-            }
+                try {
+                    FQEncryptServiceWorker.requestGlobalReset("AUTO_SELF_HEAL:" + (reason != null ? reason : ""));
+                } catch (Throwable t) {
+                    log.warn("自愈：请求重置 signer 失败", t);
+                }
 
-            try {
-                registerKeyService.clearCache();
-            } catch (Throwable t) {
-                log.warn("自愈：清除 registerkey 缓存失败", t);
-            }
+                try {
+                    registerKeyService.clearCache();
+                } catch (Throwable t) {
+                    log.warn("自愈：清除 registerkey 缓存失败", t);
+                }
 
-            try {
-                deviceRotationService.forceRotate("AUTO_SELF_HEAL:" + (reason != null ? reason : ""));
-            } catch (Throwable t) {
-                log.warn("自愈：切换设备失败", t);
+                try {
+                    deviceRotationService.forceRotate("AUTO_SELF_HEAL:" + (reason != null ? reason : ""));
+                } catch (Throwable t) {
+                    log.warn("自愈：切换设备失败", t);
+                }
+            } finally {
+                healing.set(false);
+                recordSuccess();
             }
         }, "auto-restart-self-heal").start();
 
-        recordSuccess();
         return true;
     }
 }

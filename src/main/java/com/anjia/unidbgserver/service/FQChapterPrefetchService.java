@@ -32,9 +32,6 @@ public class FQChapterPrefetchService {
     private final FQSearchService fqSearchService;
     private final FQRegisterKeyService registerKeyService;
 
-    @javax.annotation.Resource(name = "applicationTaskExecutor")
-    private Executor executor;
-
     @javax.annotation.Resource(name = "fqPrefetchExecutor")
     private Executor prefetchExecutor;
 
@@ -55,71 +52,76 @@ public class FQChapterPrefetchService {
     }
 
     public CompletableFuture<FQNovelResponse<FQNovelChapterInfo>> getChapterContent(FQNovelRequest request) {
-        return CompletableFuture.supplyAsync(() -> {
-            try {
-                String bookId = request.getBookId();
-                String chapterId = request.getChapterId();
-                String tokenScope = tokenScope(request.getToken());
-                boolean hasToken = !"t0".equals(tokenScope);
+        if (request == null) {
+            return CompletableFuture.completedFuture(FQNovelResponse.<FQNovelChapterInfo>error("请求不能为空"));
+        }
 
-                String cacheKey = cacheKey(bookId, chapterId, tokenScope);
-                FQNovelChapterInfo cached = chapterCache.getIfPresent(cacheKey);
-                if (cached == null && hasToken) {
-                    cached = chapterCache.getIfPresent(cacheKey(bookId, chapterId, "t0"));
-                }
-                if (cached != null) {
-                    return FQNovelResponse.success(cached);
-                }
+        String rawBookId = request.getBookId();
+        if (rawBookId == null || rawBookId.trim().isEmpty()) {
+            return CompletableFuture.completedFuture(FQNovelResponse.<FQNovelChapterInfo>error("书籍ID不能为空"));
+        }
+        final String bookId = rawBookId.trim();
 
-                // 预取：优先在目录中定位章节顺序，拉取后缓存
-                prefetchAndCacheDedup(bookId, chapterId, request.getToken(), tokenScope).join();
+        String rawChapterId = request.getChapterId();
+        if (rawChapterId == null || rawChapterId.trim().isEmpty()) {
+            return CompletableFuture.completedFuture(FQNovelResponse.<FQNovelChapterInfo>error("章节ID不能为空"));
+        }
+        final String chapterId = rawChapterId.trim();
 
-                cached = chapterCache.getIfPresent(cacheKey);
-                if (cached == null && hasToken) {
-                    cached = chapterCache.getIfPresent(cacheKey(bookId, chapterId, "t0"));
-                }
-                if (cached != null) {
-                    return FQNovelResponse.success(cached);
+        final String token = request.getToken();
+        final String tokenScope = tokenScope(token);
+        final boolean hasToken = !"t0".equals(tokenScope);
+
+        FQNovelChapterInfo cached = getCachedChapter(bookId, chapterId, tokenScope, hasToken);
+        if (cached != null) {
+            return CompletableFuture.completedFuture(FQNovelResponse.success(cached));
+        }
+
+        // 预取：优先在目录中定位章节顺序，拉取后缓存（非阻塞链式调用，避免线程池互等死锁）
+        return prefetchAndCacheDedup(bookId, chapterId, token, tokenScope)
+            .exceptionally(ex -> null) // 预取失败不影响单章兜底
+            .thenCompose(ignored -> {
+                FQNovelChapterInfo afterPrefetch = getCachedChapter(bookId, chapterId, tokenScope, hasToken);
+                if (afterPrefetch != null) {
+                    return CompletableFuture.completedFuture(FQNovelResponse.success(afterPrefetch));
                 }
 
                 // 兜底：仍未命中则只取单章
-                FQNovelResponse<FqIBatchFullResponse> single = fqNovelService.batchFull(chapterId, bookId, true, request.getToken()).get();
-                if (single.getCode() != 0 || single.getData() == null) {
-                    return FQNovelResponse.error("获取章节内容失败: " + single.getMessage());
-                }
+                return fqNovelService.batchFull(chapterId, bookId, true, token).thenApply(single -> {
+                    if (single.getCode() != 0 || single.getData() == null) {
+                        return FQNovelResponse.<FQNovelChapterInfo>error("获取章节内容失败: " + single.getMessage());
+                    }
 
-                Map<String, ItemContent> dataMap = single.getData().getData();
-                if (dataMap == null || dataMap.isEmpty()) {
-                    return FQNovelResponse.error("未找到章节数据");
-                }
+                    Map<String, ItemContent> dataMap = single.getData().getData();
+                    if (dataMap == null || dataMap.isEmpty()) {
+                        return FQNovelResponse.<FQNovelChapterInfo>error("未找到章节数据");
+                    }
 
-                ItemContent itemContent = dataMap.getOrDefault(chapterId, dataMap.values().iterator().next());
-                FQNovelChapterInfo info = buildChapterInfo(bookId, chapterId, itemContent);
-                chapterCache.put(cacheKey, info);
-                return FQNovelResponse.success(info);
-
-            } catch (Exception e) {
-                String msg = e.getMessage() != null ? e.getMessage() : e.toString();
+                    ItemContent itemContent = dataMap.getOrDefault(chapterId, dataMap.values().iterator().next());
+                    try {
+                        FQNovelChapterInfo info = buildChapterInfo(bookId, chapterId, itemContent);
+                        chapterCache.put(cacheKey(bookId, chapterId, tokenScope), info);
+                        return FQNovelResponse.success(info);
+                    } catch (Exception e) {
+                        throw new RuntimeException(e);
+                    }
+                });
+            })
+            .exceptionally(e -> {
+                Throwable t = e instanceof java.util.concurrent.CompletionException && e.getCause() != null ? e.getCause() : e;
+                String msg = t.getMessage() != null ? t.getMessage() : t.toString();
                 if (msg.contains("Encrypted data too short") || msg.contains("章节内容为空/过短") || msg.contains("upstream item code=")) {
-                    log.warn("单章获取失败 - bookId: {}, chapterId: {}, reason={}", request.getBookId(), request.getChapterId(), msg);
-                    log.debug("单章获取失败详情 - bookId: {}, chapterId: {}", request.getBookId(), request.getChapterId(), e);
+                    log.warn("单章获取失败 - bookId: {}, chapterId: {}, reason={}", bookId, chapterId, msg);
+                    log.debug("单章获取失败详情 - bookId: {}, chapterId: {}", bookId, chapterId, t);
                 } else {
-                    log.error("单章获取失败 - bookId: {}, chapterId: {}", request.getBookId(), request.getChapterId(), e);
+                    log.error("单章获取失败 - bookId: {}, chapterId: {}", bookId, chapterId, t);
                 }
-                return FQNovelResponse.error("获取章节内容失败: " + (e.getMessage() != null ? e.getMessage() : e.toString()));
-            }
-        }, executor != null ? executor : ForkJoinPool.commonPool());
+                return FQNovelResponse.<FQNovelChapterInfo>error("获取章节内容失败: " + msg);
+            });
     }
 
     private CompletableFuture<Void> prefetchAndCacheDedup(String bookId, String chapterId, String token, String tokenScope) {
-        String computedKey;
-        try {
-            computedKey = computePrefetchKey(bookId, chapterId);
-        } catch (Exception e) {
-            // 目录失败时退化为单章 key，仍可去重并发的同章请求
-            computedKey = bookId + ":single:" + chapterId;
-        }
-        final String key = tokenScope + ":" + computedKey;
+        final String key = tokenScope + ":" + computePrefetchKeyFast(bookId, chapterId);
 
         CompletableFuture<Void> existing = inflightPrefetch.get(key);
         if (existing != null) {
@@ -132,23 +134,24 @@ public class FQChapterPrefetchService {
             return existing;
         }
 
-        // 注意：这里不能用与 getChapterContent 相同的线程池，否则在下载器高并发时容易出现“线程都在 join 等待”的死锁
-        CompletableFuture.runAsync(() -> {
+        doPrefetchAndCacheAsync(bookId, chapterId, token, tokenScope).whenComplete((v, ex) -> {
             try {
-                doPrefetchAndCache(bookId, chapterId, token, tokenScope);
+                if (ex != null) {
+                    log.debug("预取失败（忽略） - bookId: {}, chapterId: {}", bookId, chapterId, ex);
+                    created.completeExceptionally(ex);
+                    return;
+                }
                 created.complete(null);
-            } catch (Exception e) {
-                created.completeExceptionally(e);
             } finally {
-                inflightPrefetch.remove(key);
+                inflightPrefetch.remove(key, created);
             }
-        }, prefetchExecutor != null ? prefetchExecutor : ForkJoinPool.commonPool());
+        });
 
         return created;
     }
 
-    private String computePrefetchKey(String bookId, String chapterId) throws Exception {
-        List<String> itemIds = getDirectoryItemIds(bookId);
+    private String computePrefetchKeyFast(String bookId, String chapterId) {
+        List<String> itemIds = directoryCache.getIfPresent(bookId);
         if (itemIds == null || itemIds.isEmpty()) {
             return bookId + ":single:" + chapterId;
         }
@@ -161,103 +164,105 @@ public class FQChapterPrefetchService {
         return bookId + ":bucket:" + bucketStart + ":" + size;
     }
 
-    private void doPrefetchAndCache(String bookId, String chapterId, String token, String tokenScope) throws Exception {
-        List<String> itemIds = getDirectoryItemIds(bookId);
-        if (itemIds == null || itemIds.isEmpty()) {
-            return;
-        }
-
-        int index = itemIds.indexOf(chapterId);
-        List<String> batchIds;
-        if (index < 0) {
-            batchIds = Collections.singletonList(chapterId);
-        } else {
-            int size = Math.max(1, Math.min(30, downloadProperties.getChapterPrefetchSize()));
-            int endExclusive = Math.min(itemIds.size(), index + size);
-            batchIds = itemIds.subList(index, endExclusive);
-        }
-
-        // 拉取并解密
-        String joined = String.join(",", batchIds);
-        FQNovelResponse<FqIBatchFullResponse> batch = fqNovelService.batchFull(joined, bookId, true, token).get();
-        if (batch.getCode() != 0 || batch.getData() == null || batch.getData().getData() == null) {
-            return;
-        }
-
-        for (String itemId : batchIds) {
-            ItemContent content = batch.getData().getData().get(itemId);
-            if (content == null) {
-                continue;
+    private CompletableFuture<Void> doPrefetchAndCacheAsync(String bookId, String chapterId, String token, String tokenScope) {
+        Executor exec = prefetchExecutor != null ? prefetchExecutor : ForkJoinPool.commonPool();
+        return getDirectoryItemIdsAsync(bookId).thenCompose(itemIds -> {
+            if (itemIds == null || itemIds.isEmpty()) {
+                return CompletableFuture.completedFuture(null);
             }
-            try {
-                FQNovelChapterInfo info = buildChapterInfo(bookId, itemId, content);
-                chapterCache.put(cacheKey(bookId, itemId, tokenScope), info);
-            } catch (Exception e) {
-                log.debug("预取章节处理失败 - bookId: {}, itemId: {}", bookId, itemId, e);
+
+            int index = itemIds.indexOf(chapterId);
+            List<String> batchIds;
+            if (index < 0) {
+                batchIds = Collections.singletonList(chapterId);
+            } else {
+                int size = Math.max(1, Math.min(30, downloadProperties.getChapterPrefetchSize()));
+                int endExclusive = Math.min(itemIds.size(), index + size);
+                batchIds = itemIds.subList(index, endExclusive);
             }
-        }
+
+            // 拉取并解密（处理放在 prefetchExecutor 上，避免占用业务线程池）
+            String joined = String.join(",", batchIds);
+            return fqNovelService.batchFull(joined, bookId, true, token).thenAcceptAsync(batch -> {
+                if (batch == null || batch.getCode() != 0 || batch.getData() == null || batch.getData().getData() == null) {
+                    return;
+                }
+
+                Map<String, ItemContent> dataMap = batch.getData().getData();
+                for (String itemId : batchIds) {
+                    ItemContent content = dataMap.get(itemId);
+                    if (content == null) {
+                        continue;
+                    }
+                    try {
+                        FQNovelChapterInfo info = buildChapterInfo(bookId, itemId, content);
+                        chapterCache.put(cacheKey(bookId, itemId, tokenScope), info);
+                    } catch (Exception e) {
+                        log.debug("预取章节处理失败 - bookId: {}, itemId: {}", bookId, itemId, e);
+                    }
+                }
+            }, exec);
+        });
     }
 
-    private List<String> getDirectoryItemIds(String bookId) throws Exception {
+    private CompletableFuture<List<String>> getDirectoryItemIdsAsync(String bookId) {
         List<String> cached = directoryCache.getIfPresent(bookId);
-        if (cached != null && !cached.isEmpty()) {
-            return cached;
+        if (cached != null) {
+            return CompletableFuture.completedFuture(cached);
         }
 
         CompletableFuture<List<String>> inFlight = inflightDirectory.get(bookId);
         if (inFlight != null) {
-            try {
-                return inFlight.get();
-            } catch (Exception e) {
-                return Collections.emptyList();
-            }
+            return inFlight;
         }
 
         CompletableFuture<List<String>> created = new CompletableFuture<>();
         inFlight = inflightDirectory.putIfAbsent(bookId, created);
         if (inFlight != null) {
-            try {
-                return inFlight.get();
-            } catch (Exception e) {
-                return Collections.emptyList();
-            }
+            return inFlight;
         }
-
-        // 同上：目录获取也使用独立线程池，避免与业务线程互相等待
-        CompletableFuture.runAsync(() -> {
-            try {
-                FQDirectoryRequest directoryRequest = new FQDirectoryRequest();
-                directoryRequest.setBookId(bookId);
-                directoryRequest.setBookType(0);
-                directoryRequest.setNeedVersion(true);
-
-                FQNovelResponse<FQDirectoryResponse> resp = fqSearchService.getBookDirectory(directoryRequest).get();
-                if (resp.getCode() != 0 || resp.getData() == null || resp.getData().getItemDataList() == null) {
-                    created.complete(Collections.emptyList());
-                    return;
-                }
-
-                List<String> itemIds = new ArrayList<>();
-                for (FQDirectoryResponse.ItemData item : resp.getData().getItemDataList()) {
-                    if (item != null && item.getItemId() != null && !item.getItemId().trim().isEmpty()) {
-                        itemIds.add(item.getItemId().trim());
-                    }
-                }
-
-                directoryCache.put(bookId, itemIds);
-                created.complete(itemIds);
-            } catch (Exception e) {
-                created.complete(Collections.emptyList());
-            } finally {
-                inflightDirectory.remove(bookId);
-            }
-        }, prefetchExecutor != null ? prefetchExecutor : ForkJoinPool.commonPool());
 
         try {
-            return created.get();
+            FQDirectoryRequest directoryRequest = new FQDirectoryRequest();
+            directoryRequest.setBookId(bookId);
+            directoryRequest.setBookType(0);
+            directoryRequest.setNeedVersion(true);
+
+            fqSearchService.getBookDirectory(directoryRequest)
+                .handle((resp, ex) -> {
+                    if (ex != null || resp == null || resp.getCode() != 0 || resp.getData() == null || resp.getData().getItemDataList() == null) {
+                        return Collections.<String>emptyList();
+                    }
+
+                    List<String> itemIds = new ArrayList<>();
+                    for (FQDirectoryResponse.ItemData item : resp.getData().getItemDataList()) {
+                        if (item != null && item.getItemId() != null && !item.getItemId().trim().isEmpty()) {
+                            itemIds.add(item.getItemId().trim());
+                        }
+                    }
+
+                    directoryCache.put(bookId, itemIds);
+                    return itemIds;
+                })
+                .whenComplete((itemIds, ex) -> {
+                    created.complete(itemIds != null ? itemIds : Collections.<String>emptyList());
+                    inflightDirectory.remove(bookId, created);
+                });
         } catch (Exception e) {
-            return Collections.emptyList();
+            created.complete(Collections.emptyList());
+            inflightDirectory.remove(bookId, created);
         }
+
+        return created;
+    }
+
+    private FQNovelChapterInfo getCachedChapter(String bookId, String chapterId, String tokenScope, boolean hasToken) {
+        String key = cacheKey(bookId, chapterId, tokenScope);
+        FQNovelChapterInfo cached = chapterCache.getIfPresent(key);
+        if (cached == null && hasToken) {
+            cached = chapterCache.getIfPresent(cacheKey(bookId, chapterId, "t0"));
+        }
+        return cached;
     }
 
     private FQNovelChapterInfo buildChapterInfo(String bookId, String chapterId, ItemContent itemContent) throws Exception {

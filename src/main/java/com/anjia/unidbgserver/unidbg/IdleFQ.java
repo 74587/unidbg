@@ -21,16 +21,16 @@ import com.github.unidbg.spi.SyscallHandler;
 import com.github.unidbg.virtualmodule.android.AndroidModule;
 import com.github.unidbg.virtualmodule.android.JniGraphics;
 import lombok.extern.slf4j.Slf4j;
-import org.apache.commons.collections4.map.LinkedMap;
-
+import java.util.LinkedHashMap;
+import java.util.Map;
 import java.io.File;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.Map;
 
 @Slf4j
+@SuppressWarnings("unchecked")
 public class IdleFQ extends AbstractJni implements IOResolver<AndroidFileIO> {
 
     // 资源路径常量
@@ -207,7 +207,7 @@ public class IdleFQ extends AbstractJni implements IOResolver<AndroidFileIO> {
      * 初始化模拟器设置
      */
     private void initEmulatorSettings() {
-        Map<String, Integer> iNode = new LinkedMap<>();
+        Map<String, Integer> iNode = new LinkedHashMap<>();
         iNode.put("/data/system", 671745);
         iNode.put("/data/app", 327681);
         iNode.put("/sdcard/android", 294915);
@@ -360,12 +360,14 @@ public class IdleFQ extends AbstractJni implements IOResolver<AndroidFileIO> {
         }
     }
 
+    @SuppressWarnings({"unchecked", "rawtypes"})
     @Override
     public DvmObject<?> callObjectMethodV(BaseVM vm, DvmObject<?> dvmObject, String signature, VaList vaList) {
         switch (signature) {
             case "java/lang/Thread->getStackTrace()[Ljava/lang/StackTraceElement;": {
                 StackTraceElement[] elements = Thread.currentThread().getStackTrace();
-                DvmObject[] objs = new DvmObject[elements.length];
+                @SuppressWarnings({"unchecked", "rawtypes"})
+                DvmObject<?>[] objs = (DvmObject<?>[]) new DvmObject[elements.length];
                 for (int i = 0; i < elements.length; i++) {
                     objs[i] = vm.resolveClass("java/lang/StackTraceElement").newObject(elements[i]);
                 }
@@ -385,12 +387,6 @@ public class IdleFQ extends AbstractJni implements IOResolver<AndroidFileIO> {
                     log.debug("java/lang/Thread->getBytes arg0: {}", arg0);
                 }
                 return new ByteArray(vm, arg0.getBytes(StandardCharsets.UTF_8));
-            }
-            case "java/lang/Long->longValue()J": {
-                Object value = dvmObject.getValue();
-                if (value instanceof Long) {
-                    return (DvmObject<Long>) value;
-                }
             }
         }
         return super.callObjectMethodV(vm, dvmObject, signature, vaList);
@@ -462,7 +458,7 @@ public class IdleFQ extends AbstractJni implements IOResolver<AndroidFileIO> {
     }
 
     @Override
-    public FileResult resolve(Emulator emulator, String pathname, int oflags) {
+    public FileResult resolve(Emulator<AndroidFileIO> emulator, String pathname, int oflags) {
         if (loggable) {
             log.debug("resolve ==> {}", pathname);
         }
