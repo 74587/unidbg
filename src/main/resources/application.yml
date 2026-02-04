@@ -106,7 +106,7 @@ fq:
           device-type: nova10
           dpi: '640'
           host-abi: arm64-v8a
-          install-id: '2223059664204628'
+          install-id: '1149855329344089'
           resolution: 3200*1440
           rom-version: V433IR+release-keys
           update-version-code: '68132'
@@ -125,7 +125,7 @@ fq:
           device-type: GalaxyS22
           dpi: '480'
           host-abi: arm64-v8a
-          install-id: '9653334242625135'
+          install-id: '3915224179269716'
           resolution: 1920*1080
           rom-version: V291IR+release-keys
           update-version-code: '68132'
@@ -144,7 +144,7 @@ fq:
           device-type: MT2110
           dpi: '640'
           host-abi: armeabi-v7a
-          install-id: '3804266396159751'
+          install-id: '3947527028786238'
           resolution: 3200*1440
           rom-version: V417IR+release-keys
           update-version-code: '68132'
@@ -163,7 +163,7 @@ fq:
           device-type: 21081111RG
           dpi: '640'
           host-abi: arm64-v8a
-          install-id: '5212667943884142'
+          install-id: '6123947399901082'
           resolution: 3200*1440
           rom-version: V451IR+release-keys
           update-version-code: '68132'
