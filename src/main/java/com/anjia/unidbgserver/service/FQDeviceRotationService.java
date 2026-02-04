@@ -7,6 +7,7 @@ import com.anjia.unidbgserver.dto.FQSearchResponse;
 import com.anjia.unidbgserver.dto.FqVariable;
 import com.anjia.unidbgserver.utils.FQApiUtils;
 import com.anjia.unidbgserver.utils.GzipUtils;
+import com.anjia.unidbgserver.utils.CookieUtils;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
@@ -164,7 +165,7 @@ public class FQDeviceRotationService {
     private boolean probeSearchOk() {
         try {
             FQSearchRequest searchRequest = new FQSearchRequest();
-            searchRequest.setQuery("小说");
+            searchRequest.setQuery("系统");
             searchRequest.setOffset(0);
             searchRequest.setCount(1);
             searchRequest.setTabType(1);
@@ -334,6 +335,13 @@ public class FQDeviceRotationService {
         FQApiProperties.DeviceProfile profile = null;
         int idx = -1;
         for (int i = 0; i < pool.size(); i++) {
+            // 修复：使用 Math.floorMod 防止整数溢出，并确保索引在有效范围内
+            int currentIndex = poolIndex.get();
+            // 如果索引接近 Integer.MAX_VALUE，重置为 0
+            if (currentIndex > Integer.MAX_VALUE - 1000) {
+                poolIndex.set(0);
+                currentIndex = 0;
+            }
             int candidateIdx = Math.floorMod(poolIndex.getAndIncrement(), pool.size());
             FQApiProperties.DeviceProfile candidate = pool.get(candidateIdx);
             if (candidate == null) {
@@ -379,7 +387,7 @@ public class FQDeviceRotationService {
         FQApiProperties.Device device = profile.getDevice();
         return DeviceInfo.builder()
             .userAgent(profile.getUserAgent())
-            .cookie(profile.getCookie())
+            .cookie(device != null ? CookieUtils.normalizeInstallId(profile.getCookie(), device.getInstallId()) : profile.getCookie())
             .aid(device != null ? device.getAid() : null)
             .cdid(device != null ? device.getCdid() : null)
             .deviceBrand(device != null ? device.getDeviceBrand() : null)
@@ -417,19 +425,24 @@ public class FQDeviceRotationService {
         if (profile == null) {
             return;
         }
+
+        // 避免“部分应用”：如果 device 为空但 UA/cookie 已更新，会导致请求指纹不一致
+        if (profile.getDevice() == null) {
+            log.warn("设备配置的 device 字段为空，跳过设备信息应用: profileName={}", profile.getName());
+            return;
+        }
+
         currentProfileName = profile.getName() != null ? profile.getName() : "";
         if (profile.getUserAgent() != null) {
             fqApiProperties.setUserAgent(profile.getUserAgent());
         }
-        if (profile.getCookie() != null) {
-            fqApiProperties.setCookie(profile.getCookie());
+        String cookie = profile.getCookie() != null ? profile.getCookie() : fqApiProperties.getCookie();
+        if (cookie != null) {
+            fqApiProperties.setCookie(CookieUtils.normalizeInstallId(cookie, profile.getDevice().getInstallId()));
         }
 
         if (fqApiProperties.getDevice() == null) {
             fqApiProperties.setDevice(new FQApiProperties.Device());
-        }
-        if (profile.getDevice() == null) {
-            return;
         }
 
         FQApiProperties.Device src = profile.getDevice();

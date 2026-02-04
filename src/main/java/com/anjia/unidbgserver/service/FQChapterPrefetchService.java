@@ -27,6 +27,23 @@ import java.util.regex.Pattern;
 @RequiredArgsConstructor
 public class FQChapterPrefetchService {
 
+    // 修复问题 #7：定义魔法数字为常量
+    /**
+     * Base64 编码的最小有效长度（16 bytes IV + 至少1 byte数据 = 24 chars）
+     */
+    private static final int MIN_BASE64_ENCRYPTED_LENGTH = 24;
+    
+    /**
+     * Token hash 使用的字节数（16 bytes = 32 hex chars，碰撞概率 2^-128）
+     */
+    private static final int TOKEN_HASH_BYTES = 16;
+    
+    /**
+     * HTML 文本提取的正则表达式（编译为静态常量以提高性能）
+     */
+    private static final Pattern BLK_PATTERN = Pattern.compile("<blk[^>]*>([^<]*)</blk>", Pattern.CASE_INSENSITIVE);
+    private static final Pattern TITLE_PATTERN = Pattern.compile("<h1[^>]*>.*?<blk[^>]*>([^<]*)</blk>.*?</h1>", Pattern.CASE_INSENSITIVE | Pattern.DOTALL);
+
     private final FQDownloadProperties downloadProperties;
     private final FQNovelService fqNovelService;
     private final FQSearchService fqSearchService;
@@ -277,7 +294,7 @@ public class FQChapterPrefetchService {
             throw new IllegalArgumentException("章节内容为空/过短");
         }
         // Base64(16 bytes iv + ...) 的最短长度约为 24（含 padding）；过短通常是上游返回了异常内容
-        if (encrypted.trim().length() < 24) {
+        if (encrypted.trim().length() < MIN_BASE64_ENCRYPTED_LENGTH) {
             throw new IllegalArgumentException("章节内容为空/过短");
         }
 
@@ -296,8 +313,8 @@ public class FQChapterPrefetchService {
 
         String title = itemContent.getTitle();
         if (title == null || title.trim().isEmpty()) {
-            Pattern titlePattern = Pattern.compile("<h1[^>]*>.*?<blk[^>]*>([^<]*)</blk>.*?</h1>", Pattern.CASE_INSENSITIVE | Pattern.DOTALL);
-            Matcher titleMatcher = titlePattern.matcher(decryptedContent);
+            // 修复问题 #12：使用预编译的静态正则表达式，提高性能
+            Matcher titleMatcher = TITLE_PATTERN.matcher(decryptedContent);
             if (titleMatcher.find()) {
                 title = titleMatcher.group(1).trim();
             } else {
@@ -333,9 +350,10 @@ public class FQChapterPrefetchService {
         try {
             MessageDigest digest = MessageDigest.getInstance("SHA-256");
             byte[] hash = digest.digest(value.getBytes(java.nio.charset.StandardCharsets.UTF_8));
-            // 取前 6 bytes -> 12 hex chars，足够区分且避免暴露 token
-            StringBuilder sb = new StringBuilder(12);
-            for (int i = 0; i < 6 && i < hash.length; i++) {
+            int bytes = Math.min(TOKEN_HASH_BYTES, hash.length);
+            // 取前 N bytes -> 2N hex chars，足够区分且避免暴露完整 token
+            StringBuilder sb = new StringBuilder(bytes * 2);
+            for (int i = 0; i < bytes; i++) {
                 sb.append(String.format(Locale.ROOT, "%02x", hash[i]));
             }
             return sb.toString();
@@ -352,8 +370,8 @@ public class FQChapterPrefetchService {
 
         StringBuilder textBuilder = new StringBuilder();
         try {
-            Pattern blkPattern = Pattern.compile("<blk[^>]*>([^<]*)</blk>", Pattern.CASE_INSENSITIVE);
-            Matcher matcher = blkPattern.matcher(htmlContent);
+            // 修复问题 #12：使用预编译的静态正则表达式，提高性能
+            Matcher matcher = BLK_PATTERN.matcher(htmlContent);
             while (matcher.find()) {
                 String text = matcher.group(1);
                 if (text != null && !text.trim().isEmpty()) {

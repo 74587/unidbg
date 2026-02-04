@@ -55,9 +55,11 @@ public class FQEncryptServiceWorker extends Worker {
             RESET_COOLDOWN_MS = Math.max(0L, unidbgProperties.getResetCooldownMs());
         }
         if (this.unidbgProperties.isAsync()) {
+            // 修复：使用配置的线程池大小，确保至少为1
+            int actualPoolSize = Math.max(1, poolSize);
             pool = WorkerPoolFactory.create(pool -> new FQEncryptServiceWorker(unidbgProperties.isDynarmic(),
-                unidbgProperties.isVerbose(), unidbgProperties.getApkPath(), unidbgProperties.getApkClasspath(), pool), Math.max(poolSize, 4));
-            log.info("FQ签名服务线程池大小为:{}", Math.max(poolSize, 4));
+                unidbgProperties.isVerbose(), unidbgProperties.getApkPath(), unidbgProperties.getApkClasspath(), pool), actualPoolSize);
+            log.info("FQ签名服务线程池大小为:{}", actualPoolSize);
         } else {
             this.fqEncryptService = new FQEncryptService(unidbgProperties);
         }
@@ -193,8 +195,16 @@ public class FQEncryptServiceWorker extends Worker {
     @SneakyThrows
     @Override
     public void destroy() {
+        // 修复：添加异常处理，确保资源清理的健壮性
         if (fqEncryptService != null) {
-            fqEncryptService.destroy();
+            try {
+                fqEncryptService.destroy();
+            } catch (Exception e) {
+                log.warn("销毁FQ签名服务时发生异常", e);
+            }
         }
+        
+        // 注意：WorkerPool 由 unidbg 框架管理，不需要手动关闭
+        // 线程池会在 Worker 实例销毁时自动清理
     }
 }

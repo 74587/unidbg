@@ -111,7 +111,8 @@ public class FQApiUtils {
 
         // 标准请求头（顺序参考抓包 header block）
         headers.put("accept", "application/json; charset=utf-8,application/x-protobuf");
-        headers.put("cookie", fqApiProperties.getCookie());
+        String installId = fqApiProperties.getDevice() != null ? fqApiProperties.getDevice().getInstallId() : null;
+        headers.put("cookie", CookieUtils.normalizeInstallId(fqApiProperties.getCookie(), installId));
         headers.put("user-agent", fqApiProperties.getUserAgent());
         headers.put("accept-encoding", "gzip");
         headers.put("x-xs-from-web", "0");

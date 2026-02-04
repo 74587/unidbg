@@ -122,7 +122,10 @@ public class FQEncryptService {
         }
 
         // 将Map转换为\r\n分隔的字符串格式
-        StringBuilder headerBuilder = new StringBuilder();
+        // 修复问题 #11：预估StringBuilder容量，提高性能
+        // 每个header约为 key(20) + "\r\n"(2) + value(50) + "\r\n"(2) = 74 chars
+        int estimatedCapacity = headerMap.size() * 74;
+        StringBuilder headerBuilder = new StringBuilder(estimatedCapacity);
         for (Map.Entry<String, String> entry : headerMap.entrySet()) {
             headerBuilder.append(entry.getKey()).append("\r\n")
                 .append(entry.getValue()).append("\r\n");

@@ -53,7 +53,6 @@ fq:
     base-url: https://api5-normal-sinfonlineb.fqnovel.com
     user-agent: com.dragon.read.oversea.gp/68132 (Linux; U; Android 13; zh_CN; WLZ-AN00;
       Build/V433IR;tt-ok/3.12.13.4-tiktok)
-    cookie: store-region=cn-zj; store-region-src=did; install_id=670078579016233;
     device:
       aid: '1967'
       cdid: 5566b484-82f9-4cef-880d-60ca354e6a99
@@ -80,7 +79,6 @@ fq:
       - name: dev001
         user-agent: com.dragon.read.oversea.gp/68132 (Linux; U; Android 13; zh_CN; WLZ-AN00;
           Build/V433IR;tt-ok/3.12.13.4-tiktok)
-        cookie: store-region=cn-zj; store-region-src=did; install_id=670078579016233;
         device:
           aid: '1967'
           cdid: 5566b484-82f9-4cef-880d-60ca354e6a99
@@ -100,7 +98,6 @@ fq:
       - name: dev002
         user-agent: com.dragon.read.oversea.gp/68132 (Linux; U; Android 13; zh_CN; nova10;
           Build/V433IR;tt-ok/3.12.13.4-tiktok)
-        cookie: store-region=cn-zj; store-region-src=did; install_id=2223059664204628;
         device:
           aid: '1967'
           cdid: e95f6d69-ab28-454b-b125-f187bb73a4d9
@@ -120,7 +117,6 @@ fq:
       - name: dev003
         user-agent: com.dragon.read.oversea.gp/68132 (Linux; U; Android 10; zh_CN; GalaxyS22;
           Build/V291IR;tt-ok/3.12.13.4-tiktok)
-        cookie: store-region=cn-zj; store-region-src=did; install_id=9653334242625135;
         device:
           aid: '1967'
           cdid: bcc6a9de-ecb9-42f8-9df9-a45b6550d36e
@@ -140,7 +136,6 @@ fq:
       - name: dev004
         user-agent: com.dragon.read.oversea.gp/68132 (Linux; U; Android 12; zh_CN; MT2110;
           Build/V417IR;tt-ok/3.12.13.4-tiktok)
-        cookie: store-region=cn-zj; store-region-src=did; install_id=3804266396159751;
         device:
           aid: '1967'
           cdid: e7521c2a-88ca-4fcb-9110-ebcabf5369d7
@@ -160,7 +155,6 @@ fq:
       - name: dev005
         user-agent: com.dragon.read.oversea.gp/68132 (Linux; U; Android 14; zh_CN; 21081111RG;
           Build/V451IR;tt-ok/3.12.13.4-tiktok)
-        cookie: store-region=cn-zj; store-region-src=did; install_id=5212667943884142;
         device:
           aid: '1967'
           cdid: 5b410f66-804e-4150-bfab-4462da9561bf
