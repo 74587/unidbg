@@ -50,25 +50,24 @@ fq:
     auto-restart-self-heal-enabled: true
     auto-restart-self-heal-cooldown-ms: 120000
   api:
-    base-url: https://api5-normal-sinfonlineb.fqnovel.com
-    user-agent: com.dragon.read.oversea.gp/68132 (Linux; U; Android 13; zh_CN; WLZ-AN00;
-      Build/V433IR;tt-ok/3.12.13.4-tiktok)
+    base-url: "https://api5-normal-sinfonlineb.fqnovel.com"
+    user-agent: "com.dragon.read.oversea.gp/68132 (Linux; U; Android 13; zh_CN; Sirius; Build/V417IR;tt-ok/3.12.13.4-tiktok)"
     device:
       aid: '1967'
-      cdid: 5566b484-82f9-4cef-880d-60ca354e6a99
-      device-brand: HUAWEI
-      device-id: '670078578733609'
-      device-type: WLZ-AN00
-      dpi: '480'
+      cdid: 9daf93bf-4dcf-417e-8795-20284ad26a1f
+      device-brand: Xiaomi
+      device-id: '1778337441136410'
+      device-type: Sirius
+      dpi: '440'
       host-abi: arm64-v8a
-      install-id: '670078579016233'
-      resolution: 1920*1080
-      rom-version: V433IR+release-keys
+      install-id: '573270579220059'
+      resolution: "2244*1080"
+      rom-version: "V417IR+release-keys"
       update-version-code: '68132'
       version-code: '68132'
-      version-name: 6.8.1.32
+      version-name: "6.8.1.32"
       os-version: '13'
-      os-api: '32'
+      os-api: '33'
 
     device-pool-size: 5
     device-pool-shuffle-on-startup: true
@@ -77,8 +76,7 @@ fq:
     device-rotate-cooldown-ms: 60000
     device-pool:
       - name: dev001
-        user-agent: com.dragon.read.oversea.gp/68132 (Linux; U; Android 13; zh_CN; WLZ-AN00;
-          Build/V433IR;tt-ok/3.12.13.4-tiktok)
+        user-agent: "com.dragon.read.oversea.gp/68132 (Linux; U; Android 13; zh_CN; WLZ-AN00; Build/V433IR;tt-ok/3.12.13.4-tiktok)"
         device:
           aid: '1967'
           cdid: 5566b484-82f9-4cef-880d-60ca354e6a99
@@ -88,16 +86,15 @@ fq:
           dpi: '480'
           host-abi: arm64-v8a
           install-id: '670078579016233'
-          resolution: 1920*1080
-          rom-version: V433IR+release-keys
+          resolution: "1920*1080"
+          rom-version: "V433IR+release-keys"
           update-version-code: '68132'
           version-code: '68132'
-          version-name: 6.8.1.32
+          version-name: "6.8.1.32"
           os-version: '13'
           os-api: '32'
       - name: dev002
-        user-agent: com.dragon.read.oversea.gp/68132 (Linux; U; Android 13; zh_CN; nova10;
-          Build/V433IR;tt-ok/3.12.13.4-tiktok)
+        user-agent: "com.dragon.read.oversea.gp/68132 (Linux; U; Android 13; zh_CN; nova10; Build/V433IR;tt-ok/3.12.13.4-tiktok)"
         device:
           aid: '1967'
           cdid: e95f6d69-ab28-454b-b125-f187bb73a4d9
@@ -107,16 +104,15 @@ fq:
           dpi: '640'
           host-abi: arm64-v8a
           install-id: '1149855329344089'
-          resolution: 3200*1440
-          rom-version: V433IR+release-keys
+          resolution: "3200*1440"
+          rom-version: "V433IR+release-keys"
           update-version-code: '68132'
           version-code: '68132'
-          version-name: 6.8.1.32
+          version-name: "6.8.1.32"
           os-version: '13'
           os-api: '33'
       - name: dev003
-        user-agent: com.dragon.read.oversea.gp/68132 (Linux; U; Android 10; zh_CN; GalaxyS22;
-          Build/V291IR;tt-ok/3.12.13.4-tiktok)
+        user-agent: "com.dragon.read.oversea.gp/68132 (Linux; U; Android 10; zh_CN; GalaxyS22; Build/V291IR;tt-ok/3.12.13.4-tiktok)"
         device:
           aid: '1967'
           cdid: bcc6a9de-ecb9-42f8-9df9-a45b6550d36e
@@ -126,35 +122,33 @@ fq:
           dpi: '480'
           host-abi: arm64-v8a
           install-id: '3915224179269716'
-          resolution: 1920*1080
-          rom-version: V291IR+release-keys
+          resolution: "1920*1080"
+          rom-version: "V291IR+release-keys"
           update-version-code: '68132'
           version-code: '68132'
-          version-name: 6.8.1.32
+          version-name: "6.8.1.32"
           os-version: '10'
           os-api: '29'
       - name: dev004
-        user-agent: com.dragon.read.oversea.gp/68132 (Linux; U; Android 12; zh_CN; MT2110;
-          Build/V417IR;tt-ok/3.12.13.4-tiktok)
+        user-agent: "com.dragon.read.oversea.gp/68132 (Linux; U; Android 13; zh_CN; Sirius; Build/V417IR;tt-ok/3.12.13.4-tiktok)"
         device:
           aid: '1967'
-          cdid: e7521c2a-88ca-4fcb-9110-ebcabf5369d7
-          device-brand: OnePlus
-          device-id: '3947527025786238'
-          device-type: MT2110
-          dpi: '640'
-          host-abi: armeabi-v7a
-          install-id: '3947527028786238'
-          resolution: 3200*1440
-          rom-version: V417IR+release-keys
+          cdid: 9daf93bf-4dcf-417e-8795-20284ad26a1f
+          device-brand: Xiaomi
+          device-id: '1778337441136410'
+          device-type: Sirius
+          dpi: '440'
+          host-abi: arm64-v8a
+          install-id: '573270579220059'
+          resolution: "2244*1080"
+          rom-version: "V417IR+release-keys"
           update-version-code: '68132'
           version-code: '68132'
-          version-name: 6.8.1.32
-          os-version: '12'
-          os-api: '32'
+          version-name: "6.8.1.32"
+          os-version: '13'
+          os-api: '33'
       - name: dev005
-        user-agent: com.dragon.read.oversea.gp/68132 (Linux; U; Android 14; zh_CN; 21081111RG;
-          Build/V451IR;tt-ok/3.12.13.4-tiktok)
+        user-agent: "com.dragon.read.oversea.gp/68132 (Linux; U; Android 14; zh_CN; 21081111RG; Build/V451IR;tt-ok/3.12.13.4-tiktok)"
         device:
           aid: '1967'
           cdid: 5b410f66-804e-4150-bfab-4462da9561bf
@@ -164,10 +158,10 @@ fq:
           dpi: '640'
           host-abi: arm64-v8a
           install-id: '6123947399901082'
-          resolution: 3200*1440
-          rom-version: V451IR+release-keys
+          resolution: "3200*1440"
+          rom-version: "V451IR+release-keys"
           update-version-code: '68132'
           version-code: '68132'
-          version-name: 6.8.1.32
+          version-name: "6.8.1.32"
           os-version: '14'
           os-api: '34'

@@ -43,7 +43,16 @@ public class FQRegisterKeyService {
     private ObjectMapper objectMapper;
 
     // 缓存的registerkey响应，按keyver分组
-    private final LinkedHashMap<Long, CacheEntry> cachedRegisterKeys = new LinkedHashMap<>(64, 0.75f, true);
+    private final LinkedHashMap<Long, CacheEntry> cachedRegisterKeys = new LinkedHashMap<Long, CacheEntry>(64, 0.75f, true) {
+        @Override
+        protected boolean removeEldestEntry(Map.Entry<Long, CacheEntry> eldest) {
+            int maxEntries = 32;
+            if (fqApiProperties != null) {
+                maxEntries = Math.max(1, fqApiProperties.getRegisterKeyCacheMaxEntries());
+            }
+            return size() > maxEntries;
+        }
+    };
 
     // 当前默认的registerkey响应
     private volatile FqRegisterKeyResponse currentRegisterKey;
@@ -220,7 +229,7 @@ public class FQRegisterKeyService {
         synchronized (this) {
             Map<String, Object> status = new HashMap<>();
             status.put("cachedKeyversCount", cachedRegisterKeys.size());
-            status.put("cachedKeyvers", cachedRegisterKeys.keySet());
+            status.put("cachedKeyvers", new java.util.ArrayList<>(cachedRegisterKeys.keySet()));
             status.put("currentKeyver", currentRegisterKey != null && currentRegisterKey.getData() != null ? currentRegisterKey.getData().getKeyver() : null);
             status.put("cacheMaxEntries", Math.max(1, fqApiProperties.getRegisterKeyCacheMaxEntries()));
             status.put("cacheTtlMs", Math.max(0L, fqApiProperties.getRegisterKeyCacheTtlMs()));
@@ -245,13 +254,6 @@ public class FQRegisterKeyService {
         long ttlMs = Math.max(0L, fqApiProperties.getRegisterKeyCacheTtlMs());
         long expiresAt = ttlMs <= 0 ? Long.MAX_VALUE : (System.currentTimeMillis() + ttlMs);
         cachedRegisterKeys.put(keyver, new CacheEntry(value, expiresAt));
-
-        int maxEntries = Math.max(1, fqApiProperties.getRegisterKeyCacheMaxEntries());
-        // LRU 淘汰（LinkedHashMap access-order）
-        while (cachedRegisterKeys.size() > maxEntries) {
-            Long eldestKey = cachedRegisterKeys.keySet().iterator().next();
-            cachedRegisterKeys.remove(eldestKey);
-        }
     }
 
     private static final class CacheEntry {
