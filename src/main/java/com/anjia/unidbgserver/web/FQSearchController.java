@@ -141,6 +141,32 @@ public class FQSearchController {
     }
 
     /**
+     * 获取书籍目录 (GET方式，query参数兼容入口)
+     *
+     * @param bookId 书籍ID
+     * @return 书籍目录
+     */
+    @GetMapping({"/directory", "/directory/"})
+    public CompletableFuture<FQNovelResponse<FQDirectoryResponse>> getBookDirectoryGetByQuery(
+            @RequestParam String bookId) {
+
+        if (log.isDebugEnabled()) {
+            log.debug("获取书籍目录请求(GET, query) - bookId: {}", bookId);
+        }
+
+        if (bookId == null || bookId.trim().isEmpty()) {
+            return CompletableFuture.completedFuture(
+                FQNovelResponse.error("书籍ID不能为空")
+            );
+        }
+
+        FQDirectoryRequest directoryRequest = new FQDirectoryRequest();
+        directoryRequest.setBookId(bookId.trim());
+
+        return fqSearchService.getBookDirectory(directoryRequest);
+    }
+
+    /**
      * 获取书籍目录 (POST方式)
      *
      * @param directoryRequest 目录请求参数
