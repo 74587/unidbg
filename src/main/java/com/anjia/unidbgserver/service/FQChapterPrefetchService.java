@@ -87,9 +87,8 @@ public class FQChapterPrefetchService {
 
         final String token = request.getToken();
         final String tokenScope = tokenScope(token);
-        final boolean hasToken = !"t0".equals(tokenScope);
 
-        FQNovelChapterInfo cached = getCachedChapter(bookId, chapterId, tokenScope, hasToken);
+        FQNovelChapterInfo cached = getCachedChapter(bookId, chapterId, tokenScope);
         if (cached != null) {
             return CompletableFuture.completedFuture(FQNovelResponse.success(cached));
         }
@@ -98,7 +97,7 @@ public class FQChapterPrefetchService {
         return prefetchAndCacheDedup(bookId, chapterId, token, tokenScope)
             .exceptionally(ex -> null) // 预取失败不影响单章兜底
             .thenCompose(ignored -> {
-                FQNovelChapterInfo afterPrefetch = getCachedChapter(bookId, chapterId, tokenScope, hasToken);
+                FQNovelChapterInfo afterPrefetch = getCachedChapter(bookId, chapterId, tokenScope);
                 if (afterPrefetch != null) {
                     return CompletableFuture.completedFuture(FQNovelResponse.success(afterPrefetch));
                 }
@@ -273,13 +272,9 @@ public class FQChapterPrefetchService {
         return created;
     }
 
-    private FQNovelChapterInfo getCachedChapter(String bookId, String chapterId, String tokenScope, boolean hasToken) {
+    private FQNovelChapterInfo getCachedChapter(String bookId, String chapterId, String tokenScope) {
         String key = cacheKey(bookId, chapterId, tokenScope);
-        FQNovelChapterInfo cached = chapterCache.getIfPresent(key);
-        if (cached == null && hasToken) {
-            cached = chapterCache.getIfPresent(cacheKey(bookId, chapterId, "t0"));
-        }
-        return cached;
+        return chapterCache.getIfPresent(key);
     }
 
     private FQNovelChapterInfo buildChapterInfo(String bookId, String chapterId, ItemContent itemContent) throws Exception {

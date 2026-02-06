@@ -56,6 +56,7 @@ public class FQRegisterKeyService {
 
     // 当前默认的registerkey响应
     private volatile FqRegisterKeyResponse currentRegisterKey;
+    private volatile long currentRegisterKeyExpiresAtMs = 0L;
 
     /**
      * 获取默认FQ变量（延迟初始化）
@@ -78,7 +79,7 @@ public class FQRegisterKeyService {
             if (requiredKeyver != null) {
                 log.debug("收到无效keyver({})，将使用当前缓存的registerkey", requiredKeyver);
             }
-            if (currentRegisterKey != null) {
+            if (isCurrentRegisterKeyValid()) {
                 return currentRegisterKey;
             }
             // 如果当前没有缓存的key，获取一个新的
@@ -93,9 +94,11 @@ public class FQRegisterKeyService {
         }
 
         // 如果当前缓存的key的keyver不匹配，需要刷新
-        if (currentRegisterKey == null || currentRegisterKey.getData().getKeyver() != normalizedKeyver) {
+        if (!isCurrentRegisterKeyValid() || currentRegisterKey.getData().getKeyver() != normalizedKeyver.longValue()) {
+            Object currentKeyver = (currentRegisterKey != null && currentRegisterKey.getData() != null)
+                ? currentRegisterKey.getData().getKeyver() : "无";
             log.info("registerkey 版本不匹配，刷新：当前keyver={}，需要keyver={}...",
-                    currentRegisterKey != null ? currentRegisterKey.getData().getKeyver() : "无",
+                    currentKeyver,
                     normalizedKeyver);
             return refreshRegisterKey();
         }
@@ -119,15 +122,29 @@ public class FQRegisterKeyService {
         log.info("刷新registerkey...");
         FqRegisterKeyResponse response = fetchRegisterKey();
 
-        if (response != null && response.getData() != null) {
-            long keyver = response.getData().getKeyver();
-            putCache(keyver, response);
-            currentRegisterKey = response;
-            log.info("registerkey刷新成功，新keyver: {}", keyver);
-            return response;
-        } else {
-            throw new Exception("刷新registerkey失败，响应为空");
+        if (response == null) {
+            throw new IllegalStateException("刷新registerkey失败，响应为空");
         }
+
+        if (response.getCode() != 0) {
+            throw new IllegalStateException("刷新registerkey失败，上游返回 code=" + response.getCode()
+                + ", message=" + response.getMessage());
+        }
+
+        if (response.getData() == null || response.getData().getKey() == null || response.getData().getKey().trim().isEmpty()) {
+            throw new IllegalStateException("刷新registerkey失败，响应缺少有效key");
+        }
+
+        long keyver = response.getData().getKeyver();
+        if (keyver <= 0) {
+            throw new IllegalStateException("刷新registerkey失败，响应缺少有效keyver");
+        }
+
+        long expiresAt = putCache(keyver, response);
+        currentRegisterKey = response;
+        currentRegisterKeyExpiresAtMs = expiresAt;
+        log.info("registerkey刷新成功，新keyver: {}", keyver);
+        return response;
     }
 
     /**
@@ -218,6 +235,7 @@ public class FQRegisterKeyService {
         synchronized (this) {
             cachedRegisterKeys.clear();
             currentRegisterKey = null;
+            currentRegisterKeyExpiresAtMs = 0L;
         }
         log.info("registerkey缓存已清除");
     }
@@ -250,10 +268,31 @@ public class FQRegisterKeyService {
         return entry.value;
     }
 
-    private void putCache(long keyver, FqRegisterKeyResponse value) {
-        long ttlMs = Math.max(0L, fqApiProperties.getRegisterKeyCacheTtlMs());
-        long expiresAt = ttlMs <= 0 ? Long.MAX_VALUE : (System.currentTimeMillis() + ttlMs);
+    private long putCache(long keyver, FqRegisterKeyResponse value) {
+        long expiresAt = computeExpiresAt(System.currentTimeMillis());
         cachedRegisterKeys.put(keyver, new CacheEntry(value, expiresAt));
+        return expiresAt;
+    }
+
+    private boolean isCurrentRegisterKeyValid() {
+        if (currentRegisterKey == null || currentRegisterKey.getData() == null) {
+            return false;
+        }
+        if (isExpired(currentRegisterKeyExpiresAtMs)) {
+            currentRegisterKey = null;
+            currentRegisterKeyExpiresAtMs = 0L;
+            return false;
+        }
+        return true;
+    }
+
+    private long computeExpiresAt(long nowMs) {
+        long ttlMs = Math.max(0L, fqApiProperties.getRegisterKeyCacheTtlMs());
+        return ttlMs <= 0 ? Long.MAX_VALUE : (nowMs + ttlMs);
+    }
+
+    private boolean isExpired(long expiresAtMs) {
+        return expiresAtMs > 0L && expiresAtMs < System.currentTimeMillis();
     }
 
     private static final class CacheEntry {

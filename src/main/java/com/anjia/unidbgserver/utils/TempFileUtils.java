@@ -9,14 +9,15 @@ import java.io.File;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
-import java.util.HashMap;
 import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
+import java.nio.charset.StandardCharsets;
 
 
 @Slf4j
 public class TempFileUtils {
 
-    private static final Map<String, File> TEMP_FILES = new HashMap<>();
+    private static final Map<String, File> TEMP_FILES = new ConcurrentHashMap<>();
 
     /**
      * 获取临时文件。如果临时文件不存在，从classpath复制。
@@ -24,24 +25,30 @@ public class TempFileUtils {
      * @param classpathFile classpath下的资源路径
      * @return 临时文件对象
      */
-    public static File getTempFile(String classpathFile) {
+    public static synchronized File getTempFile(String classpathFile) {
         try {
-            String md5 = DigestUtils.md5DigestAsHex(classpathFile.getBytes());
-            if (TEMP_FILES.containsKey(md5)) {
-                return TEMP_FILES.get(md5);
+            if (classpathFile == null || classpathFile.trim().isEmpty()) {
+                return null;
             }
 
-            ClassPathResource resource = new ClassPathResource(classpathFile);
+            String normalizedPath = classpathFile.trim();
+            String md5 = DigestUtils.md5DigestAsHex(normalizedPath.getBytes(StandardCharsets.UTF_8));
+            File cached = TEMP_FILES.get(md5);
+            if (cached != null && cached.exists()) {
+                return cached;
+            }
+
+            ClassPathResource resource = new ClassPathResource(normalizedPath);
             if (!resource.exists()) {
-                log.error("资源文件不存在: {}", classpathFile);
+                log.error("资源文件不存在: {}", normalizedPath);
                 return null;
             }
 
             // 获取文件扩展名
             String extension = "";
-            int dotIndex = classpathFile.lastIndexOf(".");
+            int dotIndex = normalizedPath.lastIndexOf(".");
             if (dotIndex > 0) {
-                extension = classpathFile.substring(dotIndex);
+                extension = normalizedPath.substring(dotIndex);
             }
 
             // 创建临时文件
@@ -55,7 +62,7 @@ public class TempFileUtils {
             }
 
             TEMP_FILES.put(md5, tempFile);
-            log.debug("临时文件创建成功: {} -> {}", classpathFile, tempFile.getAbsolutePath());
+            log.debug("临时文件创建成功: {} -> {}", normalizedPath, tempFile.getAbsolutePath());
             return tempFile;
         } catch (IOException e) {
             log.error("创建临时文件失败: " + classpathFile, e);
@@ -66,7 +73,7 @@ public class TempFileUtils {
     /**
      * 清理所有临时文件
      */
-    public static void cleanup() {
+    public static synchronized void cleanup() {
         for (File file : TEMP_FILES.values()) {
             try {
                 if (file.exists() && !file.delete()) {

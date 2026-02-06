@@ -24,6 +24,9 @@ public class FQEncryptServiceWorker extends Worker {
     private static final AtomicLong RESET_EPOCH = new AtomicLong(0L);
     private static final AtomicLong LAST_RESET_REQUEST_AT_MS = new AtomicLong(0L);
     private static volatile long RESET_COOLDOWN_MS = 2000L;
+    private static final long WORKER_BORROW_TIMEOUT_SECONDS = 2L;
+    private static final long WORKER_BORROW_RETRY_DELAY_MS = 50L;
+    private static final long WORKER_BORROW_MAX_WAIT_MS = 15_000L;
 
     private UnidbgProperties unidbgProperties;
     private WorkerPool pool;
@@ -103,21 +106,21 @@ public class FQEncryptServiceWorker extends Worker {
      * @param headers 请求头信息
      * @return 包含签名信息的CompletableFuture
      */
-    @SneakyThrows
     public CompletableFuture<Map<String, String>> generateSignatureHeaders(String url, String headers) {
-        FQEncryptServiceWorker worker;
         Map<String, String> result;
 
         if (this.unidbgProperties.isAsync()) {
-            // 异步模式使用工作池
-            while (true) {
-                if ((worker = pool.borrow(2, TimeUnit.SECONDS)) == null) {
-                    LockSupport.parkNanos(TimeUnit.MILLISECONDS.toNanos(50));
-                    continue;
-                }
+            FQEncryptServiceWorker worker = null;
+            try {
+                worker = borrowWorkerOrThrow();
                 result = worker.doWork(url, headers);
-                pool.release(worker);
-                break;
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                throw new IllegalStateException("签名任务被中断", e);
+            } finally {
+                if (worker != null) {
+                    pool.release(worker);
+                }
             }
         } else {
             // 同步模式直接使用当前实例
@@ -136,21 +139,21 @@ public class FQEncryptServiceWorker extends Worker {
      * @param headerMap 请求头的Map
      * @return 包含签名信息的CompletableFuture
      */
-    @SneakyThrows
     public CompletableFuture<Map<String, String>> generateSignatureHeaders(String url, Map<String, String> headerMap) {
-        FQEncryptServiceWorker worker;
         Map<String, String> result;
 
         if (this.unidbgProperties.isAsync()) {
-            // 异步模式使用工作池
-            while (true) {
-                if ((worker = pool.borrow(2, TimeUnit.SECONDS)) == null) {
-                    LockSupport.parkNanos(TimeUnit.MILLISECONDS.toNanos(50));
-                    continue;
-                }
+            FQEncryptServiceWorker worker = null;
+            try {
+                worker = borrowWorkerOrThrow();
                 result = worker.doWorkWithMap(url, headerMap);
-                pool.release(worker);
-                break;
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                throw new IllegalStateException("签名任务被中断", e);
+            } finally {
+                if (worker != null) {
+                    pool.release(worker);
+                }
             }
         } else {
             // 同步模式直接使用当前实例
@@ -176,6 +179,33 @@ public class FQEncryptServiceWorker extends Worker {
     private Map<String, String> doWorkWithMap(String url, Map<String, String> headerMap) {
         ensureResetUpToDate();
         return fqEncryptService.generateSignatureHeaders(url, headerMap);
+    }
+
+    private FQEncryptServiceWorker borrowWorkerOrThrow() throws InterruptedException {
+        if (pool == null) {
+            throw new IllegalStateException("签名工作池未初始化");
+        }
+
+        long deadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(WORKER_BORROW_MAX_WAIT_MS);
+        while (true) {
+            if (ProcessLifecycle.isShuttingDown()) {
+                throw new IllegalStateException("服务正在退出中");
+            }
+
+            FQEncryptServiceWorker worker = pool.borrow(WORKER_BORROW_TIMEOUT_SECONDS, TimeUnit.SECONDS);
+            if (worker != null) {
+                return worker;
+            }
+
+            if (System.nanoTime() >= deadline) {
+                throw new IllegalStateException("签名服务繁忙，请稍后重试");
+            }
+
+            LockSupport.parkNanos(TimeUnit.MILLISECONDS.toNanos(WORKER_BORROW_RETRY_DELAY_MS));
+            if (Thread.currentThread().isInterrupted()) {
+                throw new InterruptedException("worker borrow interrupted");
+            }
+        }
     }
 
     private void ensureResetUpToDate() {

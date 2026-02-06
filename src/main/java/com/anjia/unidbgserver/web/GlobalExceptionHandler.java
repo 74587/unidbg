@@ -53,7 +53,7 @@ public class GlobalExceptionHandler {
         Map<String, Object> body = new HashMap<>();
         body.put("success", false);
         body.put("code", 500);
-        body.put("message", "Internal Server Error: " + ex.getMessage());
+        body.put("message", "Internal Server Error");
         body.put("timestamp", System.currentTimeMillis());
         return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
             .contentType(MediaType.APPLICATION_JSON)
