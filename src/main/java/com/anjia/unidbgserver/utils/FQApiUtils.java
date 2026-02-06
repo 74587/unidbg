@@ -109,22 +109,11 @@ public class FQApiUtils {
         // 注意：签名算法对 header key 的大小写/顺序可能敏感；这里尽量对齐抓包/测试样例（小写 + 固定顺序）
         Map<String, String> headers = new LinkedHashMap<>();
 
-        String installId;
-        String cookie;
-        String userAgent;
-        String aid;
-        synchronized (fqApiProperties) {
-            FQApiProperties.Device device = fqApiProperties.getDevice();
-            installId = device != null ? device.getInstallId() : null;
-            aid = device != null ? device.getAid() : null;
-            cookie = CookieUtils.normalizeInstallId(fqApiProperties.getCookie(), installId);
-            userAgent = fqApiProperties.getUserAgent();
-        }
-
         // 标准请求头（顺序参考抓包 header block）
         headers.put("accept", "application/json; charset=utf-8,application/x-protobuf");
-        headers.put("cookie", cookie != null ? cookie : "");
-        headers.put("user-agent", userAgent != null ? userAgent : "");
+        String installId = fqApiProperties.getDevice() != null ? fqApiProperties.getDevice().getInstallId() : null;
+        headers.put("cookie", CookieUtils.normalizeInstallId(fqApiProperties.getCookie(), installId));
+        headers.put("user-agent", fqApiProperties.getUserAgent());
         headers.put("accept-encoding", "gzip");
         headers.put("x-xs-from-web", "0");
         headers.put("x-vc-bdturing-sdk-version", "3.7.2.cn");
@@ -135,8 +124,8 @@ public class FQApiUtils {
         headers.put("lc", "101");
         headers.put("x-ss-req-ticket", String.valueOf(currentTime));
         headers.put("passport-sdk-version", "50564");
-        if (aid != null) {
-            headers.put("x-ss-dp", aid);
+        if (fqApiProperties.getDevice() != null && fqApiProperties.getDevice().getAid() != null) {
+            headers.put("x-ss-dp", fqApiProperties.getDevice().getAid());
         }
 
         return headers;
@@ -177,7 +166,7 @@ public class FQApiUtils {
      * @return 完整URL
      */
     private static final Set<String> ENCODE_WHITELIST = Collections.unmodifiableSet(new HashSet<>(Arrays.asList(
-        "query", "client_ab_info", "search_source_id", "search_id","device_type","resolution", "rom_version"
+        "query", "client_ab_info", "search_source_id", "search_id","device_type","resolution"
     )));
 
     public String buildUrlWithParams(String baseUrl, Map<String, String> params) {
@@ -197,7 +186,7 @@ public class FQApiUtils {
             String value = entry.getValue();
             urlBuilder.append(key).append("=");
 
-            if (ENCODE_WHITELIST.contains(key) || needsEncoding(value)) {
+            if (ENCODE_WHITELIST.contains(key)) {
                 urlBuilder.append(encodeIfNeeded(value));
             } else {
                 urlBuilder.append(value != null ? value : "");
@@ -213,51 +202,15 @@ public class FQApiUtils {
      */
     private String encodeIfNeeded(String value) {
         if (value == null) return "";
-        // 如果是合法的百分号编码形式（%HH），认为已编码过，不再编码
-        if (isAlreadyPercentEncoded(value)) {
+        // 如果已包含%，认为已编码过，不再编码
+        if (value.contains("%")) {
             return value;
         }
         try {
-            return URLEncoder.encode(value, "UTF-8");
+            return java.net.URLEncoder.encode(value, "UTF-8");
         } catch (Exception e) {
             return value;
         }
-    }
-
-    private boolean needsEncoding(String value) {
-        if (value == null || value.isEmpty()) {
-            return false;
-        }
-        for (int i = 0; i < value.length(); i++) {
-            char c = value.charAt(i);
-            if (c == ' ' || c == '+' || c == '&' || c == '=' || c == '?' || c == '#' || c == '%') {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    private boolean isAlreadyPercentEncoded(String value) {
-        if (value == null || value.indexOf('%') < 0) {
-            return false;
-        }
-        int idx = value.indexOf('%');
-        while (idx >= 0) {
-            if (idx + 2 >= value.length()) {
-                return false;
-            }
-            if (!isHexDigit(value.charAt(idx + 1)) || !isHexDigit(value.charAt(idx + 2))) {
-                return false;
-            }
-            idx = value.indexOf('%', idx + 3);
-        }
-        return true;
-    }
-
-    private boolean isHexDigit(char c) {
-        return (c >= '0' && c <= '9')
-            || (c >= 'a' && c <= 'f')
-            || (c >= 'A' && c <= 'F');
     }
 
 public Map<String, String> buildSearchParams(FqVariable var, FQSearchRequest searchRequest) {

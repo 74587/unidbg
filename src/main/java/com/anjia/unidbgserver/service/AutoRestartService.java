@@ -20,15 +20,19 @@ public class AutoRestartService {
 
     private final AtomicInteger errorCount = new AtomicInteger(0);
     private final AtomicBoolean healing = new AtomicBoolean(false);
-    private final AtomicBoolean restarting = new AtomicBoolean(false);
     private volatile long windowStartMs = 0L;
     private volatile long lastRestartAtMs = 0L;
     private volatile long lastSelfHealAtMs = 0L;
+    private volatile boolean restarting = false;
 
     public void recordSuccess() {
         errorCount.set(0);
         windowStartMs = 0L;
-        restarting.set(false);
+        restarting = false;
+    }
+
+    public boolean isRestarting() {
+        return restarting || ProcessLifecycle.isShuttingDown();
     }
 
     public void recordFailure(String reason) {
@@ -52,7 +56,7 @@ public class AutoRestartService {
             return;
         }
 
-        if (restarting.get()) {
+        if (restarting) {
             return;
         }
 
@@ -63,17 +67,9 @@ public class AutoRestartService {
         if (now - lastRestartAtMs < minIntervalMs) {
             return;
         }
-
-        if (!restarting.compareAndSet(false, true)) {
-            return;
-        }
-
-        if (now - lastRestartAtMs < minIntervalMs) {
-            restarting.set(false);
-            return;
-        }
-
         lastRestartAtMs = now;
+
+        restarting = true;
         ProcessLifecycle.markShuttingDown("AUTO_RESTART:" + (reason != null ? reason : ""));
 
         log.error("连续异常达到阈值，准备退出进程触发重启: count={}, threshold={}, reason={}", count, threshold, reason);
@@ -139,7 +135,7 @@ public class AutoRestartService {
                 try {
                     registerKeyService.clearCache();
                 } catch (Throwable t) {
-                    log.warn("自愈：清除注册密钥缓存失败", t);
+                    log.warn("自愈：清除 registerkey 缓存失败", t);
                 }
 
                 try {

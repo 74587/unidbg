@@ -6,13 +6,10 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
-import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
-import org.springframework.web.HttpRequestMethodNotSupportedException;
 import org.springframework.web.context.request.async.AsyncRequestTimeoutException;
 
-import javax.servlet.http.HttpServletRequest;
 import java.util.HashMap;
 import java.util.Map;
 
@@ -46,37 +43,6 @@ public class GlobalExceptionHandler {
         body.put("message", ex.getMessage() != null ? ex.getMessage() : "bad request");
         body.put("timestamp", System.currentTimeMillis());
         return ResponseEntity.status(HttpStatus.BAD_REQUEST)
-            .contentType(MediaType.APPLICATION_JSON)
-            .body(body);
-    }
-
-    @ExceptionHandler(HttpMessageNotReadableException.class)
-    public ResponseEntity<Map<String, Object>> handleUnreadableBody(HttpMessageNotReadableException ex) {
-        Map<String, Object> body = new HashMap<>();
-        body.put("success", false);
-        body.put("code", 400);
-        body.put("message", "请求体格式错误");
-        body.put("timestamp", System.currentTimeMillis());
-        return ResponseEntity.status(HttpStatus.BAD_REQUEST)
-            .contentType(MediaType.APPLICATION_JSON)
-            .body(body);
-    }
-
-    @ExceptionHandler(HttpRequestMethodNotSupportedException.class)
-    public ResponseEntity<Map<String, Object>> handleMethodNotSupported(
-            HttpRequestMethodNotSupportedException ex,
-            HttpServletRequest request) {
-        String method = ex.getMethod();
-        String path = request != null ? request.getRequestURI() : "";
-
-        Map<String, Object> body = new HashMap<>();
-        body.put("success", false);
-        body.put("code", 405);
-        body.put("message", String.format("请求方法不支持: %s %s", method, path));
-        body.put("timestamp", System.currentTimeMillis());
-
-        log.warn("请求方法不支持: method={}, path={}", method, path);
-        return ResponseEntity.status(HttpStatus.METHOD_NOT_ALLOWED)
             .contentType(MediaType.APPLICATION_JSON)
             .body(body);
     }

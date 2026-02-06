@@ -17,8 +17,8 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 
 /**
- * FQNovel 注册密钥缓存服务
- * 在启动时获取注册密钥并缓存，支持 keyver 比较和自动刷新
+ * FQNovel RegisterKey缓存服务
+ * 在启动时获取registerkey并缓存，支持keyver比较和自动刷新
  */
 @Slf4j
 @Service
@@ -42,7 +42,7 @@ public class FQRegisterKeyService {
     @Resource
     private ObjectMapper objectMapper;
 
-    // 缓存的注册密钥响应，按 keyver 分组
+    // 缓存的registerkey响应，按keyver分组
     private final LinkedHashMap<Long, CacheEntry> cachedRegisterKeys = new LinkedHashMap<Long, CacheEntry>(64, 0.75f, true) {
         @Override
         protected boolean removeEldestEntry(Map.Entry<Long, CacheEntry> eldest) {
@@ -54,7 +54,7 @@ public class FQRegisterKeyService {
         }
     };
 
-    // 当前默认的注册密钥响应
+    // 当前默认的registerkey响应
     private volatile FqRegisterKeyResponse currentRegisterKey;
     private volatile long currentRegisterKeyExpiresAtMs = 0L;
 
@@ -66,7 +66,7 @@ public class FQRegisterKeyService {
     }
 
     /**
-     * 获取注册密钥，支持 keyver 比较和自动刷新
+     * 获取registerkey，支持keyver比较和自动刷新
      *
      * @param requiredKeyver 需要的keyver，如果为null或<=0则使用当前缓存的key
      * @return RegisterKey响应
@@ -77,7 +77,7 @@ public class FQRegisterKeyService {
         // 如果没有指定有效keyver，返回当前缓存的key
         if (normalizedKeyver == null) {
             if (requiredKeyver != null) {
-                log.debug("收到无效 keyver({})，将使用当前缓存的注册密钥", requiredKeyver);
+                log.debug("收到无效keyver({})，将使用当前缓存的registerkey", requiredKeyver);
             }
             if (isCurrentRegisterKeyValid()) {
                 return currentRegisterKey;
@@ -89,7 +89,7 @@ public class FQRegisterKeyService {
         // 检查是否已经缓存了指定keyver的key
         FqRegisterKeyResponse cached = getCachedIfPresent(normalizedKeyver);
         if (cached != null && cached.getData() != null) {
-            log.debug("使用缓存的注册密钥，keyver={}", normalizedKeyver);
+            log.debug("使用缓存的registerkey，keyver: {}", normalizedKeyver);
             return cached;
         }
 
@@ -97,7 +97,7 @@ public class FQRegisterKeyService {
         if (!isCurrentRegisterKeyValid() || currentRegisterKey.getData().getKeyver() != normalizedKeyver.longValue()) {
             Object currentKeyver = (currentRegisterKey != null && currentRegisterKey.getData() != null)
                 ? currentRegisterKey.getData().getKeyver() : "无";
-            log.info("注册密钥版本不匹配，刷新：当前 keyver={}，需要 keyver={}...",
+            log.info("registerkey 版本不匹配，刷新：当前keyver={}，需要keyver={}...",
                     currentKeyver,
                     normalizedKeyver);
             return refreshRegisterKey();
@@ -114,41 +114,41 @@ public class FQRegisterKeyService {
     }
 
     /**
-     * 刷新注册密钥
+     * 刷新registerkey
      *
      * @return 新的RegisterKey响应
      */
     public synchronized FqRegisterKeyResponse refreshRegisterKey() throws Exception {
-        log.info("刷新注册密钥...");
+        log.info("刷新registerkey...");
         FqRegisterKeyResponse response = fetchRegisterKey();
 
         if (response == null) {
-            throw new IllegalStateException("刷新注册密钥失败，响应为空");
+            throw new IllegalStateException("刷新registerkey失败，响应为空");
         }
 
         if (response.getCode() != 0) {
-            throw new IllegalStateException("刷新注册密钥失败，上游返回 code=" + response.getCode()
+            throw new IllegalStateException("刷新registerkey失败，上游返回 code=" + response.getCode()
                 + ", message=" + response.getMessage());
         }
 
         if (response.getData() == null || response.getData().getKey() == null || response.getData().getKey().trim().isEmpty()) {
-            throw new IllegalStateException("刷新注册密钥失败，响应缺少有效 key");
+            throw new IllegalStateException("刷新registerkey失败，响应缺少有效key");
         }
 
         long keyver = response.getData().getKeyver();
         if (keyver <= 0) {
-            throw new IllegalStateException("刷新注册密钥失败，响应缺少有效 keyver");
+            throw new IllegalStateException("刷新registerkey失败，响应缺少有效keyver");
         }
 
         long expiresAt = putCache(keyver, response);
         currentRegisterKey = response;
         currentRegisterKeyExpiresAtMs = expiresAt;
-        log.info("注册密钥刷新成功，新 keyver={}", keyver);
+        log.info("registerkey刷新成功，新keyver: {}", keyver);
         return response;
     }
 
     /**
-     * 实际获取注册密钥的方法
+     * 实际获取registerkey的方法
      *
      * @return RegisterKey响应
      */
@@ -169,7 +169,7 @@ public class FQRegisterKeyService {
         // 使用现有的签名服务生成签名
         Map<String, String> signedHeaders = fqEncryptServiceWorker.generateSignatureHeaders(fullUrl, headers).get();
         if (signedHeaders == null || signedHeaders.isEmpty()) {
-            throw new IllegalStateException("签名生成失败，无法请求注册密钥");
+            throw new IllegalStateException("签名生成失败，无法请求 registerkey");
         }
 
         // 发起API请求
@@ -181,7 +181,7 @@ public class FQRegisterKeyService {
         FqRegisterKeyPayload payload = buildRegisterKeyPayload(var);
         HttpEntity<FqRegisterKeyPayload> entity = new HttpEntity<>(payload, httpHeaders);
 
-        log.debug("发送注册密钥请求到: {}", fullUrl);
+        log.debug("发送registerkey请求到: {}", fullUrl);
         log.debug("请求时间戳: {}", currentTime);
         log.debug("签名请求头: {}", httpHeaders);
         log.debug("请求载荷: content={}, keyver={}", payload.getContent(), payload.getKeyver());
@@ -191,17 +191,17 @@ public class FQRegisterKeyService {
 
         String responseBody = GzipUtils.decompressGzipResponse(response.getBody());
         if (log.isDebugEnabled()) {
-            log.debug("注册密钥接口原始响应: {}", responseBody.length() > 800 ? responseBody.substring(0, 800) + "..." : responseBody);
+            log.debug("registerkey原始响应: {}", responseBody.length() > 800 ? responseBody.substring(0, 800) + "..." : responseBody);
         }
 
         JsonNode root = objectMapper.readTree(responseBody);
         FqRegisterKeyResponse parsed = objectMapper.treeToValue(root, FqRegisterKeyResponse.class);
 
         if (parsed == null) {
-            throw new IllegalStateException("注册密钥响应解析失败: body为空");
+            throw new IllegalStateException("registerkey 响应解析失败: body为空");
         }
 
-        log.debug("注册密钥请求响应: code={}, message={}, keyver={}",
+        log.debug("registerkey请求响应: code={}, message={}, keyver={}",
             parsed.getCode(), parsed.getMessage(),
             parsed.getData() != null ? parsed.getData().getKeyver() : "null");
 
@@ -217,7 +217,7 @@ public class FQRegisterKeyService {
     public String getDecryptionKey(Long requiredKeyver) throws Exception {
         FqRegisterKeyResponse registerKeyResponse = getRegisterKey(requiredKeyver);
         if (registerKeyResponse.getData() == null) {
-            throw new IllegalStateException("注册密钥响应 data 为空");
+            throw new IllegalStateException("registerkey 响应 data 为空");
         }
         return FqCrypto.getRealKey(registerKeyResponse.getData().getKey());
     }
@@ -237,7 +237,7 @@ public class FQRegisterKeyService {
             currentRegisterKey = null;
             currentRegisterKeyExpiresAtMs = 0L;
         }
-        log.info("注册密钥缓存已清除");
+        log.info("registerkey缓存已清除");
     }
 
     /**

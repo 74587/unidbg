@@ -4,14 +4,14 @@
     "bookSourceGroup": "",
     "bookSourceName": "番茄小说",
     "bookSourceType": 0,
-    "bookSourceUrl": "https://ip:9999",
-    "customOrder": 0,
+    "bookSourceUrl": "http://ip:9999",
+    "customOrder": 2,
     "enabled": true,
     "enabledCookieJar": false,
     "enabledExplore": false,
     "exploreUrl": "",
-    "header": "Content-Type: application/json\nUser-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-    "lastUpdateTime": 1767536666227,
+    "header": "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+    "lastUpdateTime": 1770393771729,
     "respondTime": 180000,
     "ruleBookInfo": {
       "author": "$.data.author",
@@ -20,7 +20,7 @@
       "kind": "$.data.category",
       "lastChapter": "$.data.lastChapterTitle",
       "name": "$.data.bookName",
-      "tocUrl": "https://ip:9999/api/fqsearch/directory/{{$.data.bookId}}\n<js>\njava.put(\"book_id\", java.getString(\"$.data.bookId\"))\nresult\n</js>",
+      "tocUrl": "/api/fqsearch/directory/{{$.data.bookId}}\n<js>\njava.put(\"book_id\", java.getString(\"$.data.bookId\"))\nresult\n</js>",
       "wordCount": "$.data.wordNumber"
     },
     "ruleContent": {
@@ -41,20 +41,20 @@
     "ruleSearch": {
       "author": "$.author",
       "bookList": "$.data.books[*]",
-      "bookUrl": "https://ip:9999/api/fqnovel/book/{{$.bookId}}",
+      "bookUrl": "/api/fqnovel/book/{{$.bookId}}",
       "coverUrl": "$.coverUrl",
       "intro": "$.description",
       "kind": "$.category",
       "lastChapter": "$.lastChapterTitle",
-      "name": "$.bookName\n<js>\n// 第一页时保存searchId\nif (java.get('current_page') == null || java.get('current_page') == '1') {\n    var searchId = java.getString('$..searchId');\n    if (searchId) {\n        java.put('search_id', searchId);\n    }\n}\nresult\n</js>",
+      "name": "$.bookName\n<js>\nvar searchId = java.getString('$..searchId');\nif (searchId) {\n    java.put('search_id', searchId);\n}\nresult\n</js>",
       "wordCount": "$.wordCount"
     },
     "ruleToc": {
       "chapterList": "$.data.item_data_list[*]",
       "chapterName": "$.title",
-      "chapterUrl": "@js:\nsource.bookSourceUrl + `/api/fqnovel/chapter/${java.get(\"book_id\")}/${java.getString(\"$.item_id\")}`"
+      "chapterUrl": "/api/fqnovel/chapter/{{java.get('book_id')}}/{{$.item_id}}"
     },
-    "searchUrl": "https://ip:9999/api/fqsearch/books?query={{key}}&offset={{(page-1)*20}}&count=20&tabType=3@js:\nvar currentPage = java.get('current_page') || '1';\njava.put('current_page', (parseInt(currentPage) + 1).toString());\nvar searchId = java.get('search_id');\nif (searchId && currentPage != '1') {\n    result + '&searchId=' + encodeURIComponent(searchId);\n} else {\n    result;\n}",
+    "searchUrl": "/api/fqsearch/books?query={{key}}&offset={{(page-1)*20}}&count=20&tabType=3@js:\nvar offsetMatch = /(?:^|[?&])offset=(\\d+)/.exec(result);\nvar countMatch = /(?:^|[?&])count=(\\d+)/.exec(result);\nvar offset = offsetMatch ? parseInt(offsetMatch[1], 10) : 0;\nvar count = countMatch ? parseInt(countMatch[1], 10) : 20;\nif (!count || count <= 0) {\n    count = 20;\n}\nvar currentPage = Math.floor((isNaN(offset) ? 0 : offset) / count) + 1;\nif (currentPage === 1) {\n    java.put('search_id', '');\n}\nvar searchId = java.get('search_id');\nif (searchId && currentPage > 1) {\n    result = result + '&searchId=' + encodeURIComponent(searchId);\n}\nresult;",
     "weight": 0
   }
 ]

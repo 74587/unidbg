@@ -222,10 +222,6 @@ public class FQSearchService {
                     return FQNovelResponse.error("服务正在退出中，请稍后重试");
                 }
 
-                if (searchRequest == null) {
-                    return FQNovelResponse.error("搜索请求不能为空");
-                }
-
                 searchRequestEnricher.enrich(searchRequest);
 
                 // 如果用户已经提供了search_id，直接进行搜索
@@ -356,8 +352,7 @@ public class FQSearchService {
                 return secondResponse;
 
             } catch (Exception e) {
-                String query = searchRequest != null ? searchRequest.getQuery() : null;
-                log.error("增强搜索失败 - query: {}", query, e);
+                log.error("增强搜索失败 - query: {}", searchRequest.getQuery(), e);
                 autoRestartService.recordFailure("SEARCH_EXCEPTION");
                 return FQNovelResponse.error("增强搜索失败: " + e.getMessage());
             }
@@ -583,10 +578,6 @@ public class FQSearchService {
                     return FQNovelResponse.error("服务正在退出中，请稍后重试");
                 }
 
-                if (searchRequest == null) {
-                    return FQNovelResponse.error("搜索请求不能为空");
-                }
-
                 searchRequestEnricher.enrich(searchRequest);
 
                 FqVariable var = getDefaultFqVariable();
@@ -628,8 +619,7 @@ public class FQSearchService {
                 return FQNovelResponse.success(searchResponse);
 
             } catch (Exception e) {
-                String query = searchRequest != null ? searchRequest.getQuery() : null;
-                log.error("搜索书籍失败 - query: {}", query, e);
+                log.error("搜索书籍失败 - query: {}", searchRequest.getQuery(), e);
                 autoRestartService.recordFailure("SEARCH_SIMPLE_EXCEPTION");
                 return FQNovelResponse.error("搜索书籍失败: " + e.getMessage());
             }
@@ -647,10 +637,6 @@ public class FQSearchService {
             try {
                 if (ProcessLifecycle.isShuttingDown()) {
                     return FQNovelResponse.error("服务正在退出中，请稍后重试");
-                }
-
-                if (directoryRequest == null) {
-                    return FQNovelResponse.error("目录请求不能为空");
                 }
 
                 FqVariable var = getDefaultFqVariable();
@@ -716,8 +702,7 @@ public class FQSearchService {
                 return FQNovelResponse.success(directoryResponse);
 
             } catch (Exception e) {
-                String bookId = directoryRequest != null ? directoryRequest.getBookId() : null;
-                log.error("获取书籍目录失败 - bookId: {}", bookId, e);
+                log.error("获取书籍目录失败 - bookId: {}", directoryRequest.getBookId(), e);
                 return FQNovelResponse.error("获取书籍目录失败: " + e.getMessage());
             }
         }, taskExecutor);

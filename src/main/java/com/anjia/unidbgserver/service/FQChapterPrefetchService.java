@@ -2,6 +2,7 @@ package com.anjia.unidbgserver.service;
 
 import com.anjia.unidbgserver.config.FQDownloadProperties;
 import com.anjia.unidbgserver.dto.*;
+import com.anjia.unidbgserver.service.FqCrypto;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;

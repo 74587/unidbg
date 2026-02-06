@@ -64,14 +64,8 @@ public class FqVariable {
      * 从配置构造
      */
     public FqVariable(FQApiProperties fqApiProperties) {
-        FQApiProperties.Device device = null;
-        if (fqApiProperties != null) {
-            synchronized (fqApiProperties) {
-                device = copyDevice(fqApiProperties.getDevice());
-            }
-        }
-
-        if (device != null) {
+        if (fqApiProperties != null && fqApiProperties.getDevice() != null) {
+            FQApiProperties.Device device = fqApiProperties.getDevice();
             this.installId = device.getInstallId();
             this.serverDeviceId = device.getDeviceId();
             this.aid = device.getAid();
@@ -172,28 +166,5 @@ public class FqVariable {
         this.isAndroidPadScreen = "0";
         this.romVersion = "V291IR+release-keys";
         this.cdid = "17f05006-423a-4172-be4b-7d26a42f2f4a";
-    }
-
-    private FQApiProperties.Device copyDevice(FQApiProperties.Device source) {
-        if (source == null) {
-            return null;
-        }
-        FQApiProperties.Device copy = new FQApiProperties.Device();
-        copy.setAid(source.getAid());
-        copy.setCdid(source.getCdid());
-        copy.setDeviceBrand(source.getDeviceBrand());
-        copy.setDeviceId(source.getDeviceId());
-        copy.setDeviceType(source.getDeviceType());
-        copy.setDpi(source.getDpi());
-        copy.setHostAbi(source.getHostAbi());
-        copy.setInstallId(source.getInstallId());
-        copy.setResolution(source.getResolution());
-        copy.setRomVersion(source.getRomVersion());
-        copy.setUpdateVersionCode(source.getUpdateVersionCode());
-        copy.setVersionCode(source.getVersionCode());
-        copy.setVersionName(source.getVersionName());
-        copy.setOsVersion(source.getOsVersion());
-        copy.setOsApi(source.getOsApi());
-        return copy;
     }
 }
