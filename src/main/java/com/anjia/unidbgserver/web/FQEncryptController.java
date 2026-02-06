@@ -7,6 +7,8 @@ import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.*;
 
 import javax.annotation.Resource;
+import java.util.Collections;
+import java.util.LinkedHashMap;
 import java.util.Map;
 
 @Slf4j
@@ -25,6 +27,9 @@ public class FQEncryptController {
     @SneakyThrows
     @RequestMapping(value = "generateSignature", method = {RequestMethod.POST})
     public Map<String, String> generateSignature(@RequestBody Map<String, String> request) {
+        if (request == null) {
+            throw new IllegalArgumentException("请求体不能为空");
+        }
         String url = request.get("url");
         String headers = request.get("headers");
 
@@ -61,9 +66,12 @@ public class FQEncryptController {
     @SneakyThrows
     @RequestMapping(value = "generateSignatureWithMap", method = {RequestMethod.POST})
     public Map<String, String> generateSignatureWithMap(@RequestBody Map<String, Object> request) {
-        String url = (String) request.get("url");
-        @SuppressWarnings("unchecked")
-        Map<String, String> headerMap = (Map<String, String>) request.get("headerMap");
+        if (request == null) {
+            throw new IllegalArgumentException("请求体不能为空");
+        }
+        Object urlRaw = request.get("url");
+        String url = urlRaw != null ? String.valueOf(urlRaw) : null;
+        Map<String, String> headerMap = coerceHeaderMap(request.get("headerMap"));
 
         // 检查必需的参数
         if (url == null || url.trim().isEmpty()) {
@@ -93,6 +101,9 @@ public class FQEncryptController {
     @SneakyThrows
     @RequestMapping(value = "generateSignatureSimple", method = {RequestMethod.POST})
     public Map<String, String> generateSignatureSimple(@RequestBody Map<String, String> request) {
+        if (request == null) {
+            throw new IllegalArgumentException("请求体不能为空");
+        }
         String url = request.get("url");
 
         // 检查必需的参数
@@ -114,30 +125,27 @@ public class FQEncryptController {
         return result;
     }
 
-    /**
-     * GET方式的签名生成接口（用于简单测试）
-     * @param url 请求的URL
-     * @return 包含各种签名header的结果
-     */
-    @SneakyThrows
-    @RequestMapping(value = "test", method = {RequestMethod.GET})
-    public Map<String, String> testSignature(@RequestParam String url) {
-        // 检查必需的参数
-        if (url == null || url.trim().isEmpty()) {
-            throw new IllegalArgumentException("URL参数不能为空");
+    private Map<String, String> coerceHeaderMap(Object rawHeaderMap) {
+        if (rawHeaderMap == null) {
+            return Collections.emptyMap();
+        }
+        if (!(rawHeaderMap instanceof Map)) {
+            throw new IllegalArgumentException("headerMap参数格式错误，必须是对象");
         }
 
-        if (log.isDebugEnabled()) {
-            log.debug("接收到FQ测试签名请求 - URL: {}", url);
+        Map<?, ?> source = (Map<?, ?>) rawHeaderMap;
+        Map<String, String> result = new LinkedHashMap<>();
+        for (Map.Entry<?, ?> entry : source.entrySet()) {
+            if (entry.getKey() == null) {
+                continue;
+            }
+            String key = String.valueOf(entry.getKey()).trim();
+            if (key.isEmpty()) {
+                continue;
+            }
+            Object value = entry.getValue();
+            result.put(key, value == null ? "" : String.valueOf(value));
         }
-
-        // 调用服务生成签名
-        Map<String, String> result = fqSignatureServiceWorker.generateSignatureHeaders(url, "").get();
-
-        if (log.isDebugEnabled()) {
-            log.debug("FQ测试签名生成完成，结果数量: {}", result.size());
-        }
-
         return result;
     }
 

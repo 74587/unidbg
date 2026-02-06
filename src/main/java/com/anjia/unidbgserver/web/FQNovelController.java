@@ -54,8 +54,6 @@ public class FQNovelController {
      * 
      * @param bookId 书籍ID
      * @param chapterId 章节ID
-     * @param deviceId 设备ID (可选)
-     * @param iid 安装ID（请求参数名为 iid，可选）
      * @param token 用户token (可选)
      * @return 章节内容信息
      */
@@ -63,8 +61,6 @@ public class FQNovelController {
     public CompletableFuture<FQNovelResponse<FQNovelChapterInfo>> getChapterContent(
             @PathVariable String bookId,
             @PathVariable String chapterId,
-            @RequestParam(required = false) String deviceId,
-            @RequestParam(required = false) String iid,
             @RequestParam(required = false) String token) {
         
         if (log.isDebugEnabled()) {
@@ -87,8 +83,6 @@ public class FQNovelController {
         FQNovelRequest request = new FQNovelRequest();
         request.setBookId(bookId.trim());
         request.setChapterId(chapterId.trim());
-        request.setDeviceId(deviceId);
-        request.setIid(iid);
         request.setToken(token);
 
         // 单章接口容易触发风控：这里做目录预取 + 缓存，减少上游调用次数
@@ -104,6 +98,12 @@ public class FQNovelController {
     @PostMapping("/chapter")
     public CompletableFuture<FQNovelResponse<FQNovelChapterInfo>> getChapterContentPost(
             @RequestBody FQNovelRequest request) {
+
+        if (request == null) {
+            return CompletableFuture.completedFuture(
+                FQNovelResponse.error("请求体不能为空")
+            );
+        }
         
         if (log.isDebugEnabled()) {
             log.debug("获取章节内容请求(POST) - bookId: {}, chapterId: {}", 

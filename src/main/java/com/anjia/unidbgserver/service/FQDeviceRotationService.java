@@ -314,7 +314,7 @@ public class FQDeviceRotationService {
                 registerKeyService.clearCache();
                 registerKeyService.refreshRegisterKey();
             } catch (Exception e) {
-                log.warn("设备旋转后刷新 registerkey 失败（可忽略，下次请求会再刷新）", e);
+                log.warn("设备旋转后刷新注册密钥失败（可忽略，下次请求会再刷新）", e);
             }
 
             return deviceInfo;
@@ -431,37 +431,62 @@ public class FQDeviceRotationService {
             log.warn("设备配置的 device 字段为空，跳过设备信息应用: profileName={}", profile.getName());
             return;
         }
+        synchronized (fqApiProperties) {
+            currentProfileName = profile.getName() != null ? profile.getName() : "";
 
-        currentProfileName = profile.getName() != null ? profile.getName() : "";
-        if (profile.getUserAgent() != null) {
-            fqApiProperties.setUserAgent(profile.getUserAgent());
-        }
-        String cookie = profile.getCookie() != null ? profile.getCookie() : fqApiProperties.getCookie();
-        if (cookie != null) {
-            fqApiProperties.setCookie(CookieUtils.normalizeInstallId(cookie, profile.getDevice().getInstallId()));
-        }
+            if (profile.getUserAgent() != null) {
+                fqApiProperties.setUserAgent(profile.getUserAgent());
+            }
 
-        if (fqApiProperties.getDevice() == null) {
-            fqApiProperties.setDevice(new FQApiProperties.Device());
-        }
+            FQApiProperties.Device mergedDevice = copyDevice(fqApiProperties.getDevice());
+            FQApiProperties.Device src = profile.getDevice();
+            copyIfPresent(src.getAid(), mergedDevice::setAid);
+            copyIfPresent(src.getCdid(), mergedDevice::setCdid);
+            copyIfPresent(src.getDeviceBrand(), mergedDevice::setDeviceBrand);
+            copyIfPresent(src.getDeviceId(), mergedDevice::setDeviceId);
+            copyIfPresent(src.getDeviceType(), mergedDevice::setDeviceType);
+            copyIfPresent(src.getDpi(), mergedDevice::setDpi);
+            copyIfPresent(src.getHostAbi(), mergedDevice::setHostAbi);
+            copyIfPresent(src.getInstallId(), mergedDevice::setInstallId);
+            copyIfPresent(src.getResolution(), mergedDevice::setResolution);
+            copyIfPresent(src.getRomVersion(), mergedDevice::setRomVersion);
+            copyIfPresent(src.getUpdateVersionCode(), mergedDevice::setUpdateVersionCode);
+            copyIfPresent(src.getVersionCode(), mergedDevice::setVersionCode);
+            copyIfPresent(src.getVersionName(), mergedDevice::setVersionName);
+            copyIfPresent(src.getOsVersion(), mergedDevice::setOsVersion);
+            copyIfPresent(src.getOsApi(), mergedDevice::setOsApi);
 
-        FQApiProperties.Device src = profile.getDevice();
-        FQApiProperties.Device dst = fqApiProperties.getDevice();
-        copyIfPresent(src.getAid(), dst::setAid);
-        copyIfPresent(src.getCdid(), dst::setCdid);
-        copyIfPresent(src.getDeviceBrand(), dst::setDeviceBrand);
-        copyIfPresent(src.getDeviceId(), dst::setDeviceId);
-        copyIfPresent(src.getDeviceType(), dst::setDeviceType);
-        copyIfPresent(src.getDpi(), dst::setDpi);
-        copyIfPresent(src.getHostAbi(), dst::setHostAbi);
-        copyIfPresent(src.getInstallId(), dst::setInstallId);
-        copyIfPresent(src.getResolution(), dst::setResolution);
-        copyIfPresent(src.getRomVersion(), dst::setRomVersion);
-        copyIfPresent(src.getUpdateVersionCode(), dst::setUpdateVersionCode);
-        copyIfPresent(src.getVersionCode(), dst::setVersionCode);
-        copyIfPresent(src.getVersionName(), dst::setVersionName);
-        copyIfPresent(src.getOsVersion(), dst::setOsVersion);
-        copyIfPresent(src.getOsApi(), dst::setOsApi);
+            // 一次性替换，避免并发读取时看到“半更新”的设备字段
+            fqApiProperties.setDevice(mergedDevice);
+
+            String cookie = profile.getCookie() != null ? profile.getCookie() : fqApiProperties.getCookie();
+            if (cookie != null) {
+                fqApiProperties.setCookie(CookieUtils.normalizeInstallId(cookie, mergedDevice.getInstallId()));
+            }
+        }
+    }
+
+    private FQApiProperties.Device copyDevice(FQApiProperties.Device source) {
+        FQApiProperties.Device copy = new FQApiProperties.Device();
+        if (source == null) {
+            return copy;
+        }
+        copy.setAid(source.getAid());
+        copy.setCdid(source.getCdid());
+        copy.setDeviceBrand(source.getDeviceBrand());
+        copy.setDeviceId(source.getDeviceId());
+        copy.setDeviceType(source.getDeviceType());
+        copy.setDpi(source.getDpi());
+        copy.setHostAbi(source.getHostAbi());
+        copy.setInstallId(source.getInstallId());
+        copy.setResolution(source.getResolution());
+        copy.setRomVersion(source.getRomVersion());
+        copy.setUpdateVersionCode(source.getUpdateVersionCode());
+        copy.setVersionCode(source.getVersionCode());
+        copy.setVersionName(source.getVersionName());
+        copy.setOsVersion(source.getOsVersion());
+        copy.setOsApi(source.getOsApi());
+        return copy;
     }
 
     private void copyIfPresent(String value, java.util.function.Consumer<String> setter) {

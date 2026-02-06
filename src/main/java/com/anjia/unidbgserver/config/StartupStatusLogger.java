@@ -29,7 +29,7 @@ public class StartupStatusLogger {
         log.info("运行配置：设备池大小={}, 当前设备={}, 设备ID={}, 安装ID={}", poolSize, poolName, deviceId, installId);
 
         Map<String, Object> cache = registerKeyService.getCacheStatus();
-        log.info("运行配置：registerkey 缓存={}", cache);
+        log.info("运行配置：注册密钥缓存={}", cache);
 
         long lastRotateAt = deviceRotationService.getLastRotateAtMs();
         if (lastRotateAt > 0) {

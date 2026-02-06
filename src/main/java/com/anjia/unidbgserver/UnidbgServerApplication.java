@@ -2,7 +2,6 @@ package com.anjia.unidbgserver;
 
 import lombok.extern.slf4j.Slf4j;
 import com.anjia.unidbgserver.utils.ConsoleNoiseFilter;
-import org.apache.commons.lang3.StringUtils;
 import org.springframework.boot.Banner;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
@@ -76,7 +75,7 @@ public class UnidbgServerApplication {
     private static void logApplicationStartup(Environment env) {
         String serverPort = env.getProperty(SERVER_PORT);
         String contextPath = env.getProperty(SERVER_SERVLET_CONTEXT_PATH);
-        if (StringUtils.isBlank(contextPath)) {
+        if (contextPath == null || contextPath.trim().isEmpty()) {
             contextPath = "/";
         }
         String hostAddress = InetAddress.getLoopbackAddress().getHostAddress();

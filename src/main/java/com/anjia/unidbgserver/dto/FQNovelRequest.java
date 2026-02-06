@@ -19,16 +19,6 @@ public class FQNovelRequest {
     private String chapterId;
     
     /**
-     * 设备ID
-     */
-    private String deviceId;
-    
-    /**
-     * 安装ID（请求参数名为 iid）
-     */
-    private String iid;
-    
-    /**
      * 用户token (可选, 获取付费章节时需要)
      */
     private String token;

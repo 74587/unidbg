@@ -63,12 +63,22 @@ public class FQSearchRequestEnricher {
         if (request.getComplianceStatus() == null) request.setComplianceStatus(0);
         if (request.getHarStatus() == null) request.setHarStatus(0);
 
-        FQApiProperties.Device device = fqApiProperties != null ? fqApiProperties.getDevice() : null;
+        String romVersion = "";
+        String cdid = "";
+        if (fqApiProperties != null) {
+            synchronized (fqApiProperties) {
+                FQApiProperties.Device device = fqApiProperties.getDevice();
+                if (device != null) {
+                    romVersion = device.getRomVersion() != null ? device.getRomVersion() : "";
+                    cdid = device.getCdid() != null ? device.getCdid() : "";
+                }
+            }
+        }
         if (request.getRomVersion() == null) {
-            request.setRomVersion(device != null ? device.getRomVersion() : "");
+            request.setRomVersion(romVersion);
         }
         if (request.getCdid() == null) {
-            request.setCdid(device != null ? device.getCdid() : "");
+            request.setCdid(cdid);
         }
     }
 }
