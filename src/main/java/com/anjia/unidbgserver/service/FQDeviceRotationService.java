@@ -126,7 +126,7 @@ public class FQDeviceRotationService {
                 applyDeviceProfile(fallback);
                 log.warn("启动设备探测失败，回退设备：设备名={}", fallback != null ? fallback.getName() : null);
             } else {
-                log.info("启动设备探测通过：选中序号={}, 尝试次数={}", selectedIndex, attempt);
+                log.info("设备探测通过：序号={}, 尝试={}", selectedIndex, attempt);
             }
         } else {
             FQApiProperties.DeviceProfile selected = pool.get(selectedIndex);
@@ -138,8 +138,7 @@ public class FQDeviceRotationService {
         FQApiProperties.DeviceProfile selected = pool.get(selectedIndex);
         String name = selected != null ? selected.getName() : null;
         String deviceId = selected != null && selected.getDevice() != null ? selected.getDevice().getDeviceId() : null;
-        String installId = selected != null && selected.getDevice() != null ? selected.getDevice().getInstallId() : null;
-        log.info("启动选择设备：设备名={}, 设备ID={}, 安装ID={}", name, deviceId, installId);
+        log.info("选择设备：{} (ID={})", name, deviceId);
     }
 
     private int findByName(List<FQApiProperties.DeviceProfile> pool, String name) {

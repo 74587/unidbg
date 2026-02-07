@@ -36,7 +36,7 @@ application:
 
 fq:
   download:
-    request-interval-ms: 1200
+    request-interval-ms: 1000
     max-retries: 3
     retry-delay-ms: 2000
     retry-max-delay-ms: 10000
@@ -69,13 +69,13 @@ fq:
       os-version: '13'
       os-api: '33'
 
-    device-pool-size: 5
+    device-pool-size: 2
     device-pool-shuffle-on-startup: true
     device-pool-probe-on-startup: true
     device-pool-probe-max-attempts: 3
     device-rotate-cooldown-ms: 60000
     device-pool:
-      - name: dev001
+      - name: dev01
         user-agent: "com.dragon.read.oversea.gp/68132 (Linux; U; Android 13; zh_CN; WLZ-AN00; Build/V433IR;tt-ok/3.12.13.4-tiktok)"
         device:
           aid: '1967'
@@ -93,43 +93,7 @@ fq:
           version-name: "6.8.1.32"
           os-version: '13'
           os-api: '32'
-      - name: dev002
-        user-agent: "com.dragon.read.oversea.gp/68132 (Linux; U; Android 13; zh_CN; nova10; Build/V433IR;tt-ok/3.12.13.4-tiktok)"
-        device:
-          aid: '1967'
-          cdid: e95f6d69-ab28-454b-b125-f187bb73a4d9
-          device-brand: HUAWEI
-          device-id: '1149855321344089'
-          device-type: nova10
-          dpi: '640'
-          host-abi: arm64-v8a
-          install-id: '1149855329344089'
-          resolution: "3200*1440"
-          rom-version: "V433IR+release-keys"
-          update-version-code: '68132'
-          version-code: '68132'
-          version-name: "6.8.1.32"
-          os-version: '13'
-          os-api: '33'
-      - name: dev003
-        user-agent: "com.dragon.read.oversea.gp/68132 (Linux; U; Android 10; zh_CN; GalaxyS22; Build/V291IR;tt-ok/3.12.13.4-tiktok)"
-        device:
-          aid: '1967'
-          cdid: bcc6a9de-ecb9-42f8-9df9-a45b6550d36e
-          device-brand: Samsung
-          device-id: '3915224178269716'
-          device-type: GalaxyS22
-          dpi: '480'
-          host-abi: arm64-v8a
-          install-id: '3915224179269716'
-          resolution: "1920*1080"
-          rom-version: "V291IR+release-keys"
-          update-version-code: '68132'
-          version-code: '68132'
-          version-name: "6.8.1.32"
-          os-version: '10'
-          os-api: '29'
-      - name: dev004
+      - name: dev02
         user-agent: "com.dragon.read.oversea.gp/68132 (Linux; U; Android 13; zh_CN; Sirius; Build/V417IR;tt-ok/3.12.13.4-tiktok)"
         device:
           aid: '1967'
@@ -147,21 +111,3 @@ fq:
           version-name: "6.8.1.32"
           os-version: '13'
           os-api: '33'
-      - name: dev005
-        user-agent: "com.dragon.read.oversea.gp/68132 (Linux; U; Android 14; zh_CN; 21081111RG; Build/V451IR;tt-ok/3.12.13.4-tiktok)"
-        device:
-          aid: '1967'
-          cdid: 5b410f66-804e-4150-bfab-4462da9561bf
-          device-brand: Xiaomi
-          device-id: '6123947399501082'
-          device-type: 21081111RG
-          dpi: '640'
-          host-abi: arm64-v8a
-          install-id: '6123947399901082'
-          resolution: "3200*1440"
-          rom-version: "V451IR+release-keys"
-          update-version-code: '68132'
-          version-code: '68132'
-          version-name: "6.8.1.32"
-          os-version: '14'
-          os-api: '34'

@@ -519,7 +519,7 @@ public class FQNovelService {
     }
 
     /**
-     * 将FQNovelBookInfoResp转换为FQNovelBookInfo（完整字段映射）
+     * 将FQNovelBookInfoResp转换为FQNovelBookInfo（精简版 - 仅映射必要字段）
      *
      * @param resp 原始响应对象
      * @param bookId 书籍ID
@@ -528,174 +528,16 @@ public class FQNovelService {
     private FQNovelBookInfo mapBookInfoRespToBookInfo(FQNovelBookInfoResp resp, String bookId) {
         FQNovelBookInfo info = new FQNovelBookInfo();
         
-        // ============ 基础信息 ============
+        // 只映射 Simple 版本需要的字段
         info.setBookId(bookId);
         info.setBookName(resp.getBookName());
-        info.setBookShortName(resp.getBookShortName());
         info.setAuthor(resp.getAuthor());
-        info.setAuthorId(resp.getAuthorId());
-        
-        // 作者信息 - 转换为Map
-        if (resp.getAuthorInfo() != null) {
-            try {
-                String authorInfoJson = objectMapper.writeValueAsString(resp.getAuthorInfo());
-                Map<String, Object> authorInfoMap = objectMapper.readValue(authorInfoJson, new TypeReference<Map<String, Object>>() {});
-                info.setAuthorInfo(authorInfoMap);
-            } catch (Exception e) {
-                log.warn("转换作者信息失败", e);
-            }
-        }
-        
         info.setDescription(resp.getAbstractContent());
-        info.setBookAbstractV2(resp.getBookAbstractV2());
         info.setCoverUrl(resp.getThumbUrl());
-        info.setDetailPageThumbUrl(resp.getDetailPageThumbUrl());
-        info.setExpandThumbUrl(resp.getExpandThumbUrl());
-        info.setHorizThumbUrl(resp.getHorizThumbUrl());
-        
-        // 状态
-        info.setStatus(resp.getStatus() != null ? resp.getStatus() : 0);
-        
-        info.setCreationStatus(resp.getCreationStatus());
-        info.setUpdateStatus(resp.getUpdateStatus());
-        info.setUpdateStop(resp.getUpdateStop());
-        
-        // ============ 章节信息 ============
         info.setWordNumber(resp.getWordNumber());
-        info.setFirstChapterTitle(resp.getFirstChapterTitle());
-        info.setFirstChapterItemId(resp.getFirstChapterItemId());
-        info.setFirstChapterGroupId(resp.getFirstChapterGroupId());
         info.setLastChapterTitle(resp.getLastChapterTitle());
-        info.setLastChapterItemId(resp.getLastChapterItemId());
-        info.setLastChapterGroupId(resp.getLastChapterGroupId());
-        info.setLastChapterUpdateTime(resp.getLastChapterUpdateTime());
-        info.setLastChapterFirstPassTime(resp.getLastChapterFirstPassTime());
-        info.setRealChapterOrder(resp.getRealChapterOrder());
-        
-        // ============ 分类信息 ============
         info.setCategory(resp.getCategory());
-        info.setCategoryV2(resp.getCategoryV2());
-        info.setCategoryV2Ids(resp.getCategoryV2Ids());
-        info.setCategorySchema(resp.getCategorySchema());
-        info.setCompleteCategory(resp.getCompleteCategory());
-        info.setPureCategoryTags(resp.getPureCategoryTags());
-        info.setGenre(resp.getGenre());
-        info.setGenreType(resp.getGenreType());
-        info.setSubGenre(resp.getSubGenre());
-        info.setTags(resp.getTags());
-        info.setGender(resp.getGender());
-        
-        // ============ 统计数据 ============
-        info.setReadCount(resp.getReadCount());
-        info.setReadCountAll(resp.getReadCountAll());
-        info.setReadCntText(resp.getReadCntText());
-        info.setReadDcnt30d(resp.getReadDcnt30d());
-        info.setAddBookshelfCount(resp.getAddBookshelfCount());
-        info.setAllBookshelfCount(resp.getAllBookshelfCount());
-        info.setAddShelfCount14d(resp.getAddShelfCount14d());
-        info.setShelfCntHistory(resp.getShelfCntHistory());
-        info.setReaderUv14day(resp.getReaderUv14day());
-        info.setReaderUvSumDaily(resp.getReaderUvSumDaily());
-        info.setListenCount(resp.getListenCount());
-        info.setListenUv14day(resp.getListenUv14day());
-        info.setListenUv30day(resp.getListenUv30day());
-        info.setScore(resp.getScore());
-        info.setFinishRate10(resp.getFinishRate10());
-        info.setDataRate(resp.getDataRate());
-        info.setRiskRate(resp.getRiskRate());
-        info.setRecommendCountLevel(resp.getRecommendCountLevel());
-        
-        // ============ 价格与销售 ============
-        info.setTotalPrice(resp.getTotalPrice());
-        info.setCustomTotalPrice(resp.getCustomTotalPrice());
-        info.setDiscountPrice(resp.getDiscountPrice());
-        info.setDiscountCustomTotalPrice(resp.getDiscountCustomTotalPrice());
-        info.setBasePrice(resp.getBasePrice());
-        info.setSaleStatus(resp.getSaleStatus());
-        info.setSaleType(resp.getSaleType());
-        info.setFreeStatus(resp.getFreeStatus());
-        info.setVipBook(resp.getVipBook());
-        
-        // ============ 授权与版权 ============
-        info.setExclusive(resp.getExclusive());
-        info.setRealExclusive(resp.getRealExclusive());
-        info.setAuthorizeType(resp.getAuthorizeType());
-        info.setCopyrightInfo(resp.getCopyrightInfo());
-        info.setContractAuthorize(resp.getContractAuthorize());
-        
-        // ============ 音频相关 ============
-        info.setAudioThumbUri(resp.getAudioThumbUri());
-        info.setAudioThumbUrlHd(resp.getAudioThumbUrlHd());
-        info.setColorAudioDominate(resp.getColorAudioDominate());
-        info.setColorAudioMostPopular(resp.getColorAudioMostPopular());
-        info.setAudioEnableRandomPlay(resp.getAudioEnableRandomPlay());
-        info.setHideListenBall(resp.getHideListenBall());
-        info.setDuration(resp.getDuration());
-        info.setRelatedAudioBookId(resp.getRelatedAudioBookId());
-        info.setRelatedAudioBookids(resp.getRelatedAudioBookids());
-        info.setHasMatchAudioBooks(resp.getHasMatchAudioBooks());
-        
-        // ============ 显示与颜色 ============
-        info.setColorDominate(resp.getColorDominate());
-        info.setColorMostPopular(resp.getColorMostPopular());
-        info.setThumbUri(resp.getThumbUri());
-        info.setUseSquarePic(resp.getUseSquarePic());
-        info.setThumbConfirmStatus(resp.getThumbConfirmStatus());
-        info.setOpThumbUri(resp.getOpThumbUri());
-        
-        // ============ 时间信息 ============
-        info.setCreateTime(resp.getCreateTime());
-        info.setPublishedDate(resp.getPublishedDate());
-        info.setLastPublishTime(resp.getLastPublishTime());
-        info.setFirstOnlineTime(resp.getFirstOnlineTime());
-        info.setFirstVisibleTime(resp.getFirstVisibleTime());
-        info.setLatestReadTime(resp.getLatestReadTime());
-        info.setLatestListenTime(resp.getLatestListenTime());
-        
-        // ============ 书籍类型 ============
-        info.setBookType(resp.getBookType());
-        info.setIsNew(resp.getIsNew());
-        info.setIsEbook(resp.getIsEbook());
-        info.setIsLaobai(resp.getIsLaobai());
-        info.setLengthType(resp.getLengthType());
-        info.setNovelTextType(resp.getNovelTextType());
-        info.setNovelBookThumbType(resp.getNovelBookThumbType());
-        
-        // ============ 其他信息 ============
-        info.setBookSearchVisible(resp.getBookSearchVisible());
-        info.setVisibilityInfo(resp.getVisibilityInfo());
-        info.setRegionVisibilityInfo(resp.getRegionVisibilityInfo());
-        info.setPress(resp.getPress());
-        info.setPublisher(resp.getPublisher());
-        info.setIsbn(resp.getIsbn());
-        info.setSource(resp.getSource());
-        info.setPlatform(resp.getPlatform());
-        info.setPlatformBookId(resp.getPlatformBookId());
-        info.setFlightFlag(resp.getFlightFlag());
-        info.setBookFlightVersionId(resp.getBookFlightVersionId());
-        info.setBookFlightAliasName(resp.getBookFlightAliasName());
-        info.setBookFlightAliasThumb(resp.getBookFlightAliasThumb());
-        info.setBindReputationBookId(resp.getBindReputationBookId());
-        info.setModifiedReputationBookName(resp.getModifiedReputationBookName());
-        info.setReputationThumbUri(resp.getReputationThumbUri());
-        info.setReputationAuditStatus(resp.getReputationAuditStatus());
-        info.setReputationLatestSetTime(resp.getReputationLatestSetTime());
-        info.setExtraWordNumber(resp.getExtraWordNumber());
-        info.setHasExtraChapter(resp.getHasExtraChapter());
-        info.setAuthorModifyChapterSwitch(resp.getAuthorModifyChapterSwitch());
-        info.setBindAuthorIds(resp.getBindAuthorIds());
-        info.setKeepPublishDays(resp.getKeepPublishDays());
-        info.setKeepUpdateDays(resp.getKeepUpdateDays());
-        info.setWillKeepUpdateDays(resp.getWillKeepUpdateDays());
-        info.setEstimatedChapterCount(resp.getEstimatedChapterCount());
-        info.setContentChapterNumber(resp.getContentChapterNumber());
-        info.setDisableReaderFeature(resp.getDisableReaderFeature());
-        info.setTtsStatus(resp.getTtsStatus());
-        info.setTtsDistribution(resp.getTtsDistribution());
-        info.setTtsRecBlock(resp.getTtsRecBlock());
-        info.setChangduProfileScore(resp.getChangduProfileScore());
-        info.setWriteExtraPermission(resp.getWriteExtraPermission());
-        info.setCreationLatestFinishTime(resp.getCreationLatestFinishTime());
+        info.setStatus(resp.getStatus() != null ? resp.getStatus() : 0);
         
         return info;
     }

@@ -119,7 +119,7 @@ public class FQRegisterKeyService {
      * @return 新的RegisterKey响应
      */
     public synchronized FqRegisterKeyResponse refreshRegisterKey() throws Exception {
-        log.info("刷新registerkey...");
+        log.debug("刷新 registerkey...");
         FqRegisterKeyResponse response = fetchRegisterKey();
 
         if (response == null) {
@@ -143,7 +143,7 @@ public class FQRegisterKeyService {
         long expiresAt = putCache(keyver, response);
         currentRegisterKey = response;
         currentRegisterKeyExpiresAtMs = expiresAt;
-        log.info("registerkey刷新成功，新keyver: {}", keyver);
+        log.debug("registerkey 刷新成功：keyver={}", keyver);
         return response;
     }
 
