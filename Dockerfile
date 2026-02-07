@@ -15,10 +15,9 @@ ENV SERVER_PORT=9999
 EXPOSE 9999
 
 # JVM 参数（可通过环境变量覆盖）
-ENV JAVA_OPTS="-Xmx1024m -Xms512m -XX:+UseG1GC -XX:MaxGCPauseMillis=200"
+ENV JAVA_OPTS=""
 
 # 启动应用
-# 注意：Distroless 没有 shell，直接使用 java 命令
+# 注意：Distroless 没有 shell，无法使用 bash 过滤日志
 # 日志过滤已在 ConsoleNoiseFilter.java 中实现
-# 添加内存参数以解决 unidbg 动态翻译器缓冲区分配问题
-ENTRYPOINT ["java", "-Xmx1024m", "-Xms512m", "-XX:+UseG1GC", "-XX:MaxGCPauseMillis=200", "-jar", "/app/fqnovel.jar"]
+ENTRYPOINT ["java", "-jar", "/app/fqnovel.jar"]
