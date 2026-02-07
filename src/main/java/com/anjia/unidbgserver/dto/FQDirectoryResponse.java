@@ -122,6 +122,18 @@ public class FQDirectoryResponse {
          */
         @JsonProperty("first_pass_time_str")
         private String firstPassTimeStr;
+
+        /**
+         * 排序序号（由服务端计算）
+         */
+        @JsonProperty("sort_order")
+        private Integer sortOrder;
+
+        /**
+         * 是否免费（由服务端计算）
+         */
+        @JsonProperty("is_free")
+        private Boolean isFree;
     }
 
     @Data
