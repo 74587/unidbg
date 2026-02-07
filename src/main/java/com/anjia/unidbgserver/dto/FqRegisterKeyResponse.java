@@ -22,6 +22,5 @@ public class FqRegisterKeyResponse {
     /**
      * 响应数据
      */
-//    private FqRegisterKeyPayload data;
     private FqRegisterKeyPayloadResponse data;
 }

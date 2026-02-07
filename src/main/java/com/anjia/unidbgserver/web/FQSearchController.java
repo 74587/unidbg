@@ -81,6 +81,12 @@ public class FQSearchController {
     public CompletableFuture<FQNovelResponse<FQSearchResponse>> searchBooksPost(
             @RequestBody FQSearchRequest searchRequest) {
 
+        if (searchRequest == null) {
+            return CompletableFuture.completedFuture(
+                FQNovelResponse.error("请求体不能为空")
+            );
+        }
+
         if (log.isDebugEnabled()) {
             log.debug("搜索书籍请求(POST) - query: {}, tabType: {}, searchId: {}",
                 searchRequest.getQuery(), searchRequest.getTabType(), searchRequest.getSearchId());
@@ -143,6 +149,12 @@ public class FQSearchController {
     @PostMapping("/directory")
     public CompletableFuture<FQNovelResponse<FQDirectoryResponse>> getBookDirectoryPost(
             @RequestBody FQDirectoryRequest directoryRequest) {
+
+        if (directoryRequest == null) {
+            return CompletableFuture.completedFuture(
+                FQNovelResponse.error("请求体不能为空")
+            );
+        }
 
         if (log.isDebugEnabled()) {
             log.debug("获取书籍目录请求(POST) - bookId: {}", directoryRequest.getBookId());

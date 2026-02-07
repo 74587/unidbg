@@ -216,10 +216,6 @@ public class IdleFQ extends AbstractJni implements IOResolver<AndroidFileIO> {
         emulator.set("inode", iNode);
         emulator.set("uid", 10074);
 
-        // 可选的多线程支持配置
-        // emulator.getBackend().registerEmuCountHook(100000);
-        // emulator.getSyscallHandler().setVerbose(true);
-        // emulator.getSyscallHandler().setEnableThreadDispatcher(true);
     }
 
     /**

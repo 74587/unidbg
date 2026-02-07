@@ -62,12 +62,24 @@ public class FQEncryptController {
     @RequestMapping(value = "generateSignatureWithMap", method = {RequestMethod.POST})
     public Map<String, String> generateSignatureWithMap(@RequestBody Map<String, Object> request) {
         String url = (String) request.get("url");
-        @SuppressWarnings("unchecked")
-        Map<String, String> headerMap = (Map<String, String>) request.get("headerMap");
+        Object headerMapObj = request.get("headerMap");
 
         // 检查必需的参数
         if (url == null || url.trim().isEmpty()) {
             throw new IllegalArgumentException("URL参数不能为空");
+        }
+
+        // 安全转换 headerMap
+        Map<String, String> headerMap = new java.util.HashMap<>();
+        if (headerMapObj instanceof Map) {
+            @SuppressWarnings("unchecked")
+            Map<String, Object> rawMap = (Map<String, Object>) headerMapObj;
+            for (Map.Entry<String, Object> entry : rawMap.entrySet()) {
+                String key = entry.getKey();
+                Object value = entry.getValue();
+                // 将所有值转为字符串
+                headerMap.put(key, value != null ? value.toString() : "");
+            }
         }
 
         if (log.isDebugEnabled()) {

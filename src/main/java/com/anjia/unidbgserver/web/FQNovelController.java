@@ -105,6 +105,12 @@ public class FQNovelController {
     public CompletableFuture<FQNovelResponse<FQNovelChapterInfo>> getChapterContentPost(
             @RequestBody FQNovelRequest request) {
         
+        if (request == null) {
+            return CompletableFuture.completedFuture(
+                FQNovelResponse.error("请求体不能为空")
+            );
+        }
+        
         if (log.isDebugEnabled()) {
             log.debug("获取章节内容请求(POST) - bookId: {}, chapterId: {}", 
                 request.getBookId(), request.getChapterId());

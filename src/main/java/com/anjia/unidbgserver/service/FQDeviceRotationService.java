@@ -433,35 +433,40 @@ public class FQDeviceRotationService {
         }
 
         currentProfileName = profile.getName() != null ? profile.getName() : "";
+        
+        // 先准备好新的 Device 对象（避免逐字段修改导致并发读取到"半旧半新"状态）
+        FQApiProperties.Device newDevice = new FQApiProperties.Device();
+        FQApiProperties.Device src = profile.getDevice();
+        
+        // 复制所有字段到新对象
+        copyIfPresent(src.getAid(), newDevice::setAid);
+        copyIfPresent(src.getCdid(), newDevice::setCdid);
+        copyIfPresent(src.getDeviceBrand(), newDevice::setDeviceBrand);
+        copyIfPresent(src.getDeviceId(), newDevice::setDeviceId);
+        copyIfPresent(src.getDeviceType(), newDevice::setDeviceType);
+        copyIfPresent(src.getDpi(), newDevice::setDpi);
+        copyIfPresent(src.getHostAbi(), newDevice::setHostAbi);
+        copyIfPresent(src.getInstallId(), newDevice::setInstallId);
+        copyIfPresent(src.getResolution(), newDevice::setResolution);
+        copyIfPresent(src.getRomVersion(), newDevice::setRomVersion);
+        copyIfPresent(src.getUpdateVersionCode(), newDevice::setUpdateVersionCode);
+        copyIfPresent(src.getVersionCode(), newDevice::setVersionCode);
+        copyIfPresent(src.getVersionName(), newDevice::setVersionName);
+        copyIfPresent(src.getOsVersion(), newDevice::setOsVersion);
+        copyIfPresent(src.getOsApi(), newDevice::setOsApi);
+        
+        // 原子替换：先更新 UA 和 Cookie，最后一次性替换 Device 对象
+        // 这样可以最大程度减少"半旧半新"的时间窗口
         if (profile.getUserAgent() != null) {
             fqApiProperties.setUserAgent(profile.getUserAgent());
         }
         String cookie = profile.getCookie() != null ? profile.getCookie() : fqApiProperties.getCookie();
         if (cookie != null) {
-            fqApiProperties.setCookie(CookieUtils.normalizeInstallId(cookie, profile.getDevice().getInstallId()));
+            fqApiProperties.setCookie(CookieUtils.normalizeInstallId(cookie, newDevice.getInstallId()));
         }
-
-        if (fqApiProperties.getDevice() == null) {
-            fqApiProperties.setDevice(new FQApiProperties.Device());
-        }
-
-        FQApiProperties.Device src = profile.getDevice();
-        FQApiProperties.Device dst = fqApiProperties.getDevice();
-        copyIfPresent(src.getAid(), dst::setAid);
-        copyIfPresent(src.getCdid(), dst::setCdid);
-        copyIfPresent(src.getDeviceBrand(), dst::setDeviceBrand);
-        copyIfPresent(src.getDeviceId(), dst::setDeviceId);
-        copyIfPresent(src.getDeviceType(), dst::setDeviceType);
-        copyIfPresent(src.getDpi(), dst::setDpi);
-        copyIfPresent(src.getHostAbi(), dst::setHostAbi);
-        copyIfPresent(src.getInstallId(), dst::setInstallId);
-        copyIfPresent(src.getResolution(), dst::setResolution);
-        copyIfPresent(src.getRomVersion(), dst::setRomVersion);
-        copyIfPresent(src.getUpdateVersionCode(), dst::setUpdateVersionCode);
-        copyIfPresent(src.getVersionCode(), dst::setVersionCode);
-        copyIfPresent(src.getVersionName(), dst::setVersionName);
-        copyIfPresent(src.getOsVersion(), dst::setOsVersion);
-        copyIfPresent(src.getOsApi(), dst::setOsApi);
+        
+        // 最后一次性替换 Device 对象（相比逐字段修改，这是一个原子操作）
+        fqApiProperties.setDevice(newDevice);
     }
 
     private void copyIfPresent(String value, java.util.function.Consumer<String> setter) {

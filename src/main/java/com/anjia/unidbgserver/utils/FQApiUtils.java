@@ -6,6 +6,7 @@ import com.anjia.unidbgserver.dto.FqVariable;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 
+import java.net.URLDecoder;
 import java.net.URLEncoder;
 import java.util.*;
 
@@ -50,7 +51,6 @@ public class FQApiUtils {
         params.put("resolution", var.getResolution());
         params.put("dpi", var.getDpi());
         params.put("update_version_code", var.getUpdateVersionCode());
-//        params.put("_rticket", var.getRticket());
         params.put("_rticket", String.valueOf(System.currentTimeMillis())); // 使用当前时间戳作为_rticket
         params.put("host_abi", var.getHostAbi());
         params.put("dragon_device_type", var.getDragonDeviceType());
@@ -166,7 +166,7 @@ public class FQApiUtils {
      * @return 完整URL
      */
     private static final Set<String> ENCODE_WHITELIST = Collections.unmodifiableSet(new HashSet<>(Arrays.asList(
-        "query", "client_ab_info", "search_source_id", "search_id","device_type","resolution"
+        "query", "client_ab_info", "search_source_id", "search_id", "device_type", "resolution", "rom_version"
     )));
 
     public String buildUrlWithParams(String baseUrl, Map<String, String> params) {
@@ -202,14 +202,21 @@ public class FQApiUtils {
      */
     private String encodeIfNeeded(String value) {
         if (value == null) return "";
-        // 如果已包含%，认为已编码过，不再编码
-        if (value.contains("%")) {
-            return value;
-        }
         try {
-            return java.net.URLEncoder.encode(value, "UTF-8");
+            // 先尝试解码，如果解码后与原值不同，说明已编码
+            String decoded = URLDecoder.decode(value, "UTF-8");
+            if (!decoded.equals(value)) {
+                return value; // 已编码，直接返回
+            }
+            // 未编码，进行编码
+            return URLEncoder.encode(value, "UTF-8");
         } catch (Exception e) {
-            return value;
+            // 解码失败，尝试直接编码
+            try {
+                return URLEncoder.encode(value, "UTF-8");
+            } catch (Exception ex) {
+                return value;
+            }
         }
     }
 
@@ -259,7 +266,6 @@ public Map<String, String> buildSearchParams(FqVariable var, FQSearchRequest sea
         params.put("client_ab_info", searchRequest.getClientAbInfo()); // JSON需编码
     }
 
-//    params.put("klink_egdi", var.getKlinkEgdi()); // 设备特有参数
     params.put("normal_session_id", searchRequest.getNormalSessionId());
     params.put("cold_start_session_id", searchRequest.getColdStartSessionId());
     params.put("charging", String.valueOf(searchRequest.getCharging()));
@@ -272,8 +278,6 @@ public Map<String, String> buildSearchParams(FqVariable var, FQSearchRequest sea
     params.put("is_android_pad_screen", String.valueOf(searchRequest.getIsAndroidPadScreen()));
     params.put("network_type", String.valueOf(searchRequest.getNetworkType()));
     params.put("current_volume", String.valueOf(searchRequest.getCurrentVolume()));
-    // ... 补齐所有参数
-
     return params;
 }
 

@@ -23,16 +23,16 @@ public class AutoRestartService {
     private volatile long windowStartMs = 0L;
     private volatile long lastRestartAtMs = 0L;
     private volatile long lastSelfHealAtMs = 0L;
-    private volatile boolean restarting = false;
+    private final AtomicBoolean restarting = new AtomicBoolean(false);
 
     public void recordSuccess() {
         errorCount.set(0);
         windowStartMs = 0L;
-        restarting = false;
+        restarting.set(false);
     }
 
     public boolean isRestarting() {
-        return restarting || ProcessLifecycle.isShuttingDown();
+        return restarting.get() || ProcessLifecycle.isShuttingDown();
     }
 
     public void recordFailure(String reason) {
@@ -56,7 +56,7 @@ public class AutoRestartService {
             return;
         }
 
-        if (restarting) {
+        if (restarting.get()) {
             return;
         }
 
@@ -69,7 +69,11 @@ public class AutoRestartService {
         }
         lastRestartAtMs = now;
 
-        restarting = true;
+        // 使用 CAS 确保只有一个线程能进入重启流程
+        if (!restarting.compareAndSet(false, true)) {
+            return;
+        }
+
         ProcessLifecycle.markShuttingDown("AUTO_RESTART:" + (reason != null ? reason : ""));
 
         log.error("连续异常达到阈值，准备退出进程触发重启: count={}, threshold={}, reason={}", count, threshold, reason);
