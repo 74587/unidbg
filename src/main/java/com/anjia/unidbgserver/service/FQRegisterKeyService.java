@@ -93,17 +93,26 @@ public class FQRegisterKeyService {
             return cached;
         }
 
-        // 如果当前缓存的key的keyver不匹配，需要刷新
-        if (!isCurrentRegisterKeyValid() || currentRegisterKey.getData().getKeyver() != normalizedKeyver.longValue()) {
-            Object currentKeyver = (currentRegisterKey != null && currentRegisterKey.getData() != null)
-                ? currentRegisterKey.getData().getKeyver() : "无";
-            log.info("registerkey 版本不匹配，刷新：当前keyver={}，需要keyver={}...",
-                    currentKeyver,
-                    normalizedKeyver);
-            return refreshRegisterKey();
+        // 如果当前缓存的key的keyver匹配，直接返回
+        if (isCurrentRegisterKeyValid() && currentRegisterKey.getData().getKeyver() == normalizedKeyver.longValue()) {
+            log.debug("当前registerkey版本匹配，keyver: {}", normalizedKeyver);
+            return currentRegisterKey;
         }
 
-        return currentRegisterKey;
+        // keyver不匹配，但不应该刷新（因为刷新只会获取最新的keyver）
+        // 记录警告并返回当前key，让调用方处理版本不匹配的情况
+        Object currentKeyver = (currentRegisterKey != null && currentRegisterKey.getData() != null)
+            ? currentRegisterKey.getData().getKeyver() : "无";
+        log.warn("registerkey 版本不匹配 - 当前keyver={}，需要keyver={}。无法获取历史keyver，将使用当前key尝试解密",
+                currentKeyver, normalizedKeyver);
+        
+        // 如果当前key有效，返回它（即使版本不匹配）
+        if (isCurrentRegisterKeyValid()) {
+            return currentRegisterKey;
+        }
+        
+        // 如果当前key无效，刷新一个新的
+        return refreshRegisterKey();
     }
 
     private Long normalizeKeyver(Long keyver) {

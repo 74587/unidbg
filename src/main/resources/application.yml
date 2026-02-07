@@ -9,7 +9,7 @@ spring:
     name: unidbg-boot-server
   mvc:
     async:
-      request-timeout: 180000
+      request-timeout: 300000  # 增加到5分钟，避免registerkey刷新时超时
   task:
     execution:
       pool:

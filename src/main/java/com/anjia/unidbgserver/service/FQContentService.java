@@ -22,8 +22,25 @@ public class FQContentService {
             throw new IllegalArgumentException("itemContent 不能为空");
         }
         Long keyVersion = itemContent.getKeyVersion();
-        String key = registerKeyService.getDecryptionKey(keyVersion);
-        return FqCrypto.decryptAndDecompressContent(itemContent.getContent(), key);
+        
+        try {
+            String key = registerKeyService.getDecryptionKey(keyVersion);
+            return FqCrypto.decryptAndDecompressContent(itemContent.getContent(), key);
+        } catch (Exception e) {
+            log.error("解密内容失败 - keyVersion: {}, 错误: {}", keyVersion, e.getMessage());
+            
+            // 如果解密失败，尝试使用当前最新的 registerkey
+            log.info("尝试使用当前最新的 registerkey 重新解密...");
+            try {
+                String currentKey = registerKeyService.getDecryptionKey(null);
+                String result = FqCrypto.decryptAndDecompressContent(itemContent.getContent(), currentKey);
+                log.info("使用当前 registerkey 解密成功");
+                return result;
+            } catch (Exception retryException) {
+                log.error("使用当前 registerkey 重试解密也失败", retryException);
+                throw e; // 抛出原始异常
+            }
+        }
     }
 
     public List<Map.Entry<String, String>> decryptBatchContents(FqIBatchFullResponse response) {
