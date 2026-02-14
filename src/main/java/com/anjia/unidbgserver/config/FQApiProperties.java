@@ -4,8 +4,10 @@ import lombok.Data;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.stereotype.Component;
 
+import javax.annotation.PostConstruct;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.function.Consumer;
 
 /**
  * FQ API 配置属性
@@ -110,6 +112,149 @@ public class FQApiProperties {
      * 避免长时间持有过期 keyver；下次请求会自动刷新。
      */
     private long registerKeyCacheTtlMs = 60 * 60 * 1000L;
+
+    /**
+     * 运行时快照：请求链路统一从该快照读取，保证 userAgent/cookie/device 一致性。
+     */
+    private volatile RuntimeProfile runtimeProfile;
+
+    @PostConstruct
+    public synchronized void initRuntimeProfile() {
+        refreshRuntimeProfileLocked();
+    }
+
+    public RuntimeProfile getRuntimeProfile() {
+        RuntimeProfile snapshot = runtimeProfile;
+        if (snapshot != null) {
+            return snapshot;
+        }
+        synchronized (this) {
+            if (runtimeProfile == null) {
+                refreshRuntimeProfileLocked();
+            }
+            return runtimeProfile;
+        }
+    }
+
+    public String getUserAgent() {
+        return getRuntimeProfile().getUserAgent();
+    }
+
+    public String getCookie() {
+        return getRuntimeProfile().getCookie();
+    }
+
+    public synchronized void setUserAgent(String userAgent) {
+        String normalized = normalizeNullable(userAgent);
+        if (normalized != null) {
+            this.userAgent = normalized;
+        }
+        refreshRuntimeProfileLocked();
+    }
+
+    public synchronized void setCookie(String cookie) {
+        String normalized = normalizeNullable(cookie);
+        if (normalized != null) {
+            this.cookie = normalized;
+        }
+        refreshRuntimeProfileLocked();
+    }
+
+    public synchronized void setDevice(Device device) {
+        if (device != null) {
+            this.device = copyDevice(device);
+        }
+        refreshRuntimeProfileLocked();
+    }
+
+    /**
+     * 原子切换运行时设备信息。
+     */
+    public synchronized void applyRuntimeProfile(String userAgent, String cookie, Device device) {
+        String normalizedUserAgent = normalizeNullable(userAgent);
+        if (normalizedUserAgent != null) {
+            this.userAgent = normalizedUserAgent;
+        }
+
+        String normalizedCookie = normalizeNullable(cookie);
+        if (normalizedCookie != null) {
+            this.cookie = normalizedCookie;
+        }
+
+        if (device != null) {
+            this.device = copyDevice(device);
+        }
+
+        refreshRuntimeProfileLocked();
+    }
+
+    private void refreshRuntimeProfileLocked() {
+        this.runtimeProfile = RuntimeProfile.of(this.userAgent, this.cookie, this.device);
+    }
+
+    private static String normalizeNullable(String value) {
+        if (value == null) {
+            return null;
+        }
+        String trimmed = value.trim();
+        return trimmed.isEmpty() ? null : trimmed;
+    }
+
+    private static Device copyDevice(Device source) {
+        Device target = new Device();
+        if (source == null) {
+            return target;
+        }
+
+        copyIfText(source.getCdid(), target::setCdid);
+        copyIfText(source.getInstallId(), target::setInstallId);
+        copyIfText(source.getDeviceId(), target::setDeviceId);
+        copyIfText(source.getAid(), target::setAid);
+        copyIfText(source.getVersionCode(), target::setVersionCode);
+        copyIfText(source.getVersionName(), target::setVersionName);
+        copyIfText(source.getUpdateVersionCode(), target::setUpdateVersionCode);
+        copyIfText(source.getDeviceType(), target::setDeviceType);
+        copyIfText(source.getDeviceBrand(), target::setDeviceBrand);
+        copyIfText(source.getRomVersion(), target::setRomVersion);
+        copyIfText(source.getResolution(), target::setResolution);
+        copyIfText(source.getDpi(), target::setDpi);
+        copyIfText(source.getHostAbi(), target::setHostAbi);
+        copyIfText(source.getOsVersion(), target::setOsVersion);
+        copyIfText(source.getOsApi(), target::setOsApi);
+        return target;
+    }
+
+    private static void copyIfText(String value, Consumer<String> setter) {
+        if (setter == null || value == null) {
+            return;
+        }
+        String trimmed = value.trim();
+        if (trimmed.isEmpty()) {
+            return;
+        }
+        setter.accept(trimmed);
+    }
+
+    @Data
+    public static final class RuntimeProfile {
+        private final String userAgent;
+        private final String cookie;
+        private final Device device;
+
+        private RuntimeProfile(String userAgent, String cookie, Device device) {
+            this.userAgent = userAgent;
+            this.cookie = cookie;
+            this.device = copyDevice(device);
+        }
+
+        private static RuntimeProfile of(String userAgent, String cookie, Device device) {
+            return new RuntimeProfile(normalizeNullable(userAgent), normalizeNullable(cookie), device);
+        }
+
+        public Device getDevice() {
+            return copyDevice(this.device);
+        }
+    }
 
     @Data
     public static class DeviceProfile {

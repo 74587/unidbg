@@ -63,7 +63,8 @@ public class FQSearchRequestEnricher {
         if (request.getComplianceStatus() == null) request.setComplianceStatus(0);
         if (request.getHarStatus() == null) request.setHarStatus(0);
 
-        FQApiProperties.Device device = fqApiProperties != null ? fqApiProperties.getDevice() : null;
+        FQApiProperties.RuntimeProfile runtimeProfile = fqApiProperties != null ? fqApiProperties.getRuntimeProfile() : null;
+        FQApiProperties.Device device = runtimeProfile != null ? runtimeProfile.getDevice() : null;
         if (request.getRomVersion() == null) {
             request.setRomVersion(device != null ? device.getRomVersion() : "");
         }

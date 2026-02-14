@@ -20,7 +20,7 @@
       "kind": "$.data.category",
       "lastChapter": "$.data.lastChapterTitle",
       "name": "$.data.bookName",
-      "tocUrl": "/api/toc/{{$.data.bookId}}\n<js>\njava.put(\"book_id\", java.getString(\"$.data.bookId\"))\nresult\n</js>",
+      "tocUrl": "/toc/{{$.data.bookId}}\n<js>\njava.put(\"book_id\", java.getString(\"$.data.bookId\"))\nresult\n</js>",
       "wordCount": "$.data.wordNumber"
     },
     "ruleContent": {
@@ -31,7 +31,7 @@
     "ruleSearch": {
       "author": "$.author",
       "bookList": "$.data.books[*]",
-      "bookUrl": "/api/book/{{$.bookId}}",
+      "bookUrl": "/book/{{$.bookId}}",
       "coverUrl": "$.coverUrl",
       "intro": "$.description",
       "kind": "$.category",
@@ -42,9 +42,9 @@
     "ruleToc": {
       "chapterList": "$.data.item_data_list[*]",
       "chapterName": "$.title",
-      "chapterUrl": "/api/chapter/{{java.get('book_id')}}/{{$.item_id}}"
+      "chapterUrl": "/chapter/{{java.get('book_id')}}/{{$.item_id}}"
     },
-    "searchUrl": "/api/search?key={{key}}&page={{page}}&size=20&tabType=3@js:\nvar pageMatch = /(?:^|[?&])page=(\\d+)/.exec(result);\nvar currentPage = pageMatch ? parseInt(pageMatch[1], 10) : 1;\nif (currentPage === 1) {\n    java.put('search_id', '');\n}\nvar searchId = java.get('search_id');\nif (searchId && currentPage > 1) {\n    result = result + '&searchId=' + encodeURIComponent(searchId);\n}\nresult;",
+    "searchUrl": "/search?key={{key}}&page={{page}}&size=20&tabType=3@js:\nvar pageMatch = /(?:^|[?&])page=(\\d+)/.exec(result);\nvar currentPage = pageMatch ? parseInt(pageMatch[1], 10) : 1;\nif (currentPage === 1) {\n    java.put('search_id', '');\n}\nvar searchId = java.get('search_id');\nif (searchId && currentPage > 1) {\n    result = result + '&searchId=' + encodeURIComponent(searchId);\n}\nresult;",
     "weight": 0
   }
 ]

@@ -1,11 +1,13 @@
 package com.anjia.unidbgserver.dto;
 
+import com.fasterxml.jackson.annotation.JsonInclude;
 import lombok.Data;
 
 /**
  * FQNovel 小说章节信息
  */
 @Data
+@JsonInclude(JsonInclude.Include.NON_NULL)
 public class FQNovelChapterInfo {
 
     /**

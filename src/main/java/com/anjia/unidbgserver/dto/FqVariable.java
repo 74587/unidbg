@@ -64,8 +64,9 @@ public class FqVariable {
      * 从配置构造
      */
     public FqVariable(FQApiProperties fqApiProperties) {
-        if (fqApiProperties != null && fqApiProperties.getDevice() != null) {
-            FQApiProperties.Device device = fqApiProperties.getDevice();
+        FQApiProperties.RuntimeProfile runtimeProfile = fqApiProperties != null ? fqApiProperties.getRuntimeProfile() : null;
+        FQApiProperties.Device device = runtimeProfile != null ? runtimeProfile.getDevice() : null;
+        if (device != null) {
             this.installId = device.getInstallId();
             this.serverDeviceId = device.getDeviceId();
             this.aid = device.getAid();

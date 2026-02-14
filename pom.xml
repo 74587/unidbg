@@ -23,13 +23,17 @@
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
 
-        <lombok.version>1.18.30</lombok.version>
+        <!-- 依赖版本管理 -->
+        <lombok.version>1.18.42</lombok.version>
         <unidbg.version>0.9.8</unidbg.version>
-        <commons-lang3.version>3.14.0</commons-lang3.version>
-        <commons-io.version>2.15.1</commons-io.version>
-        <streamex.version>0.8.2</streamex.version>
-        <commons-codec.version>1.16.1</commons-codec.version>
-<maven.test.skip>true</maven.test.skip>
+        <commons-lang3.version>3.20.0</commons-lang3.version>
+        <commons-io.version>2.21.0</commons-io.version>
+        <streamex.version>0.8.4</streamex.version>
+        <commons-codec.version>1.21.0</commons-codec.version>
+        <caffeine.version>2.9.3</caffeine.version>
+
+        <!-- 跳过测试（可通过命令行 -Dmaven.test.skip=false 覆盖） -->
+        <maven.test.skip>true</maven.test.skip>
     </properties>
 
     <dependencies>
@@ -84,11 +88,16 @@
             <artifactId>spring-boot-starter-web</artifactId>
         </dependency>
         <dependency>
+            <groupId>com.github.ben-manes.caffeine</groupId>
+            <artifactId>caffeine</artifactId>
+            <version>${caffeine.version}</version>
+        </dependency>
+        <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-configuration-processor</artifactId>
             <optional>true</optional>
         </dependency>
-<dependency>
+        <dependency>
             <groupId>org.projectlombok</groupId>
             <artifactId>lombok</artifactId>
             <optional>true</optional>
@@ -134,21 +143,21 @@
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-compiler-plugin</artifactId>
-                <version>3.13.0</version>
+                <version>3.15.0</version>
                 <configuration>
-                    <source>1.8</source>
-                    <target>1.8</target>
-                    <!-- Suppress noisy javac option warning: "bootstrap class path not set in conjunction with -source 8" -->
+                    <source>${java.version}</source>
+                    <target>${java.version}</target>
                     <compilerArgs>
+                        <!-- 抑制 javac 警告：bootstrap class path not set in conjunction with -source 8 -->
                         <arg>-Xlint:-options</arg>
                     </compilerArgs>
                     <annotationProcessorPaths>
-<path>
+                        <path>
                             <groupId>org.projectlombok</groupId>
                             <artifactId>lombok</artifactId>
                             <version>${lombok.version}</version>
                         </path>
-</annotationProcessorPaths>
+                    </annotationProcessorPaths>
                 </configuration>
             </plugin>
         </plugins>

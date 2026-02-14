@@ -37,4 +37,11 @@ public class FQDirectoryRequest {
      * 是否需要版本信息
      */
     private Boolean needVersion = true;
+
+    /**
+     * 是否返回精简目录响应（仅保留 Legado 必需字段）
+     * true: 仅返回 item_data_list( item_id/title ) + serial_count
+     * false: 返回完整目录数据
+     */
+    private Boolean minimalResponse = false;
 }

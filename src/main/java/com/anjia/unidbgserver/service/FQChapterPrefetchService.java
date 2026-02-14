@@ -2,7 +2,9 @@ package com.anjia.unidbgserver.service;
 
 import com.anjia.unidbgserver.config.FQDownloadProperties;
 import com.anjia.unidbgserver.dto.*;
-import com.anjia.unidbgserver.service.FqCrypto;
+import com.anjia.unidbgserver.utils.ChapterInfoBuilder;
+import com.anjia.unidbgserver.utils.LocalCacheFactory;
+import com.github.benmanes.caffeine.cache.Cache;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -14,8 +16,6 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ForkJoinPool;
 import java.util.concurrent.Executor;
 import java.security.MessageDigest;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 
 /**
  * 单章接口的抗风控优化：
@@ -37,12 +37,6 @@ public class FQChapterPrefetchService {
      * Token hash 使用的字节数（16 bytes = 32 hex chars，碰撞概率 2^-128）
      */
     private static final int TOKEN_HASH_BYTES = 16;
-    
-    /**
-     * HTML 文本提取的正则表达式（编译为静态常量以提高性能）
-     */
-    private static final Pattern BLK_PATTERN = Pattern.compile("<blk[^>]*>([^<]*)</blk>", Pattern.CASE_INSENSITIVE);
-    private static final Pattern TITLE_PATTERN = Pattern.compile("<h1[^>]*>.*?<blk[^>]*>([^<]*)</blk>.*?</h1>", Pattern.CASE_INSENSITIVE | Pattern.DOTALL);
 
     private final FQDownloadProperties downloadProperties;
     private final FQNovelService fqNovelService;
@@ -52,10 +46,10 @@ public class FQChapterPrefetchService {
     @javax.annotation.Resource(name = "fqPrefetchExecutor")
     private Executor prefetchExecutor;
 
-    private TimedLruCache<String, FQNovelChapterInfo> chapterCache;
-    private TimedLruCache<String, List<String>> directoryCache;
+    private Cache<String, FQNovelChapterInfo> chapterCache;
+    private Cache<String, DirectoryIndex> directoryCache;
     private final ConcurrentHashMap<String, CompletableFuture<Void>> inflightPrefetch = new ConcurrentHashMap<>();
-    private final ConcurrentHashMap<String, CompletableFuture<List<String>>> inflightDirectory = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<String, CompletableFuture<DirectoryIndex>> inflightDirectory = new ConcurrentHashMap<>();
 
     @PostConstruct
     public void initCaches() {
@@ -64,8 +58,8 @@ public class FQChapterPrefetchService {
         int dirMax = Math.max(64, chapterMax / 10);
         long dirTtl = downloadProperties.getDirectoryCacheTtlMs();
 
-        this.chapterCache = new TimedLruCache<>(chapterMax, chapterTtl);
-        this.directoryCache = new TimedLruCache<>(dirMax, dirTtl);
+        this.chapterCache = LocalCacheFactory.build(chapterMax, chapterTtl);
+        this.directoryCache = LocalCacheFactory.build(dirMax, dirTtl);
     }
 
     public CompletableFuture<FQNovelResponse<FQNovelChapterInfo>> getChapterContent(FQNovelRequest request) {
@@ -167,11 +161,11 @@ public class FQChapterPrefetchService {
     }
 
     private String computePrefetchKeyFast(String bookId, String chapterId) {
-        List<String> itemIds = directoryCache.getIfPresent(bookId);
-        if (itemIds == null || itemIds.isEmpty()) {
+        DirectoryIndex directoryIndex = directoryCache.getIfPresent(bookId);
+        if (directoryIndex == null || directoryIndex.getItemIds().isEmpty()) {
             return bookId + ":single:" + chapterId;
         }
-        int index = itemIds.indexOf(chapterId);
+        int index = directoryIndex.indexOf(chapterId);
         if (index < 0) {
             return bookId + ":single:" + chapterId;
         }
@@ -182,12 +176,13 @@ public class FQChapterPrefetchService {
 
     private CompletableFuture<Void> doPrefetchAndCacheAsync(String bookId, String chapterId, String token, String tokenScope) {
         Executor exec = prefetchExecutor != null ? prefetchExecutor : ForkJoinPool.commonPool();
-        return getDirectoryItemIdsAsync(bookId).thenCompose(itemIds -> {
-            if (itemIds == null || itemIds.isEmpty()) {
+        return getDirectoryIndexAsync(bookId).thenCompose(directoryIndex -> {
+            List<String> itemIds = directoryIndex != null ? directoryIndex.getItemIds() : Collections.emptyList();
+            if (itemIds.isEmpty()) {
                 return CompletableFuture.completedFuture(null);
             }
 
-            int index = itemIds.indexOf(chapterId);
+            int index = directoryIndex.indexOf(chapterId);
             List<String> batchIds;
             if (index < 0) {
                 batchIds = Collections.singletonList(chapterId);
@@ -221,18 +216,18 @@ public class FQChapterPrefetchService {
         });
     }
 
-    private CompletableFuture<List<String>> getDirectoryItemIdsAsync(String bookId) {
-        List<String> cached = directoryCache.getIfPresent(bookId);
+    private CompletableFuture<DirectoryIndex> getDirectoryIndexAsync(String bookId) {
+        DirectoryIndex cached = directoryCache.getIfPresent(bookId);
         if (cached != null) {
             return CompletableFuture.completedFuture(cached);
         }
 
-        CompletableFuture<List<String>> inFlight = inflightDirectory.get(bookId);
+        CompletableFuture<DirectoryIndex> inFlight = inflightDirectory.get(bookId);
         if (inFlight != null) {
             return inFlight;
         }
 
-        CompletableFuture<List<String>> created = new CompletableFuture<>();
+        CompletableFuture<DirectoryIndex> created = new CompletableFuture<>();
         inFlight = inflightDirectory.putIfAbsent(bookId, created);
         if (inFlight != null) {
             return inFlight;
@@ -241,35 +236,72 @@ public class FQChapterPrefetchService {
         try {
             FQDirectoryRequest directoryRequest = new FQDirectoryRequest();
             directoryRequest.setBookId(bookId);
-            directoryRequest.setBookType(0);
-            directoryRequest.setNeedVersion(true);
+            directoryRequest.setMinimalResponse(true);
 
             fqSearchService.getBookDirectory(directoryRequest)
                 .handle((resp, ex) -> {
                     if (ex != null || resp == null || resp.getCode() != 0 || resp.getData() == null || resp.getData().getItemDataList() == null) {
-                        return Collections.<String>emptyList();
+                        return DirectoryIndex.empty();
                     }
 
                     List<String> itemIds = new ArrayList<>();
+                    Map<String, Integer> chapterIndex = new HashMap<>();
                     for (FQDirectoryResponse.ItemData item : resp.getData().getItemDataList()) {
                         if (item != null && item.getItemId() != null && !item.getItemId().trim().isEmpty()) {
-                            itemIds.add(item.getItemId().trim());
+                            String itemId = item.getItemId().trim();
+                            chapterIndex.put(itemId, itemIds.size());
+                            itemIds.add(itemId);
                         }
                     }
 
-                    directoryCache.put(bookId, itemIds);
-                    return itemIds;
+                    DirectoryIndex directoryIndex = DirectoryIndex.of(itemIds, chapterIndex);
+                    directoryCache.put(bookId, directoryIndex);
+                    return directoryIndex;
                 })
-                .whenComplete((itemIds, ex) -> {
-                    created.complete(itemIds != null ? itemIds : Collections.<String>emptyList());
+                .whenComplete((directoryIndex, ex) -> {
+                    created.complete(directoryIndex != null ? directoryIndex : DirectoryIndex.empty());
                     inflightDirectory.remove(bookId, created);
                 });
         } catch (Exception e) {
-            created.complete(Collections.emptyList());
+            created.complete(DirectoryIndex.empty());
             inflightDirectory.remove(bookId, created);
         }
 
         return created;
+    }
+
+    private static final class DirectoryIndex {
+        private static final DirectoryIndex EMPTY = new DirectoryIndex(Collections.emptyList(), Collections.emptyMap());
+
+        private final List<String> itemIds;
+        private final Map<String, Integer> chapterIndex;
+
+        private DirectoryIndex(List<String> itemIds, Map<String, Integer> chapterIndex) {
+            this.itemIds = itemIds;
+            this.chapterIndex = chapterIndex;
+        }
+
+        private static DirectoryIndex of(List<String> itemIds, Map<String, Integer> chapterIndex) {
+            List<String> safeIds = itemIds == null ? Collections.emptyList() : Collections.unmodifiableList(new ArrayList<>(itemIds));
+            Map<String, Integer> safeIndex = chapterIndex == null ? Collections.emptyMap() : Collections.unmodifiableMap(new HashMap<>(chapterIndex));
+            return new DirectoryIndex(safeIds, safeIndex);
+        }
+
+        private static DirectoryIndex empty() {
+            return EMPTY;
+        }
+
+        private List<String> getItemIds() {
+            return itemIds;
+        }
+
+        private int indexOf(String chapterId) {
+            if (chapterId == null) {
+                return -1;
+            }
+            Integer index = chapterIndex.get(chapterId);
+            return index != null ? index : -1;
+        }
     }
 
     private FQNovelChapterInfo getCachedChapter(String bookId, String chapterId, String tokenScope) {
@@ -297,33 +329,13 @@ public class FQChapterPrefetchService {
         Long contentKeyver = itemContent.getKeyVersion();
         String key = registerKeyService.getDecryptionKey(contentKeyver);
         decryptedContent = FqCrypto.decryptAndDecompressContent(encrypted, key);
-
-        String txtContent = extractTextFromHtml(decryptedContent);
-
-        FQNovelChapterInfo chapterInfo = new FQNovelChapterInfo();
-        chapterInfo.setChapterId(chapterId);
-        chapterInfo.setBookId(bookId);
-        chapterInfo.setRawContent(decryptedContent);
-        chapterInfo.setTxtContent(txtContent);
-
-        String title = itemContent.getTitle();
-        if (title == null || title.trim().isEmpty()) {
-            // 修复问题 #12：使用预编译的静态正则表达式，提高性能
-            Matcher titleMatcher = TITLE_PATTERN.matcher(decryptedContent);
-            if (titleMatcher.find()) {
-                title = titleMatcher.group(1).trim();
-            } else {
-                title = "章节标题";
-            }
-        }
-        chapterInfo.setTitle(title);
-
-        FQNovelData novelData = itemContent.getNovelData();
-        chapterInfo.setAuthorName(novelData != null ? novelData.getAuthor() : "未知作者");
-        chapterInfo.setWordCount(txtContent.length());
-        chapterInfo.setUpdateTime(System.currentTimeMillis());
-
-        return chapterInfo;
+        return ChapterInfoBuilder.build(
+            bookId,
+            chapterId,
+            itemContent,
+            decryptedContent,
+            downloadProperties.isChapterIncludeRawContent()
+        );
     }
 
     private static String tokenScope(String token) {
@@ -358,78 +370,5 @@ public class FQChapterPrefetchService {
         }
     }
 
-    private String extractTextFromHtml(String htmlContent) {
-        if (htmlContent == null || htmlContent.trim().isEmpty()) {
-            return "";
-        }
 
-        StringBuilder textBuilder = new StringBuilder();
-        try {
-            // 修复问题 #12：使用预编译的静态正则表达式，提高性能
-            Matcher matcher = BLK_PATTERN.matcher(htmlContent);
-            while (matcher.find()) {
-                String text = matcher.group(1);
-                if (text != null && !text.trim().isEmpty()) {
-                    textBuilder.append(text.trim()).append("\n");
-                }
-            }
-            if (textBuilder.length() == 0) {
-                String text = htmlContent.replaceAll("<[^>]+>", "").trim();
-                if (!text.isEmpty()) {
-                    textBuilder.append(text);
-                }
-            }
-        } catch (Exception e) {
-            return htmlContent.replaceAll("<[^>]+>", "").trim();
-        }
-        return textBuilder.toString().trim();
-    }
-
-    /**
-     * 轻量 LRU + TTL 缓存（无额外依赖）。
-     */
-    static class TimedLruCache<K, V> {
-        private final Map<K, Entry<V>> map;
-        private final int maxEntries;
-        private final long ttlMs;
-
-        TimedLruCache(int maxEntries, long ttlMs) {
-            this.maxEntries = Math.max(1, maxEntries);
-            this.ttlMs = ttlMs;
-            this.map = Collections.synchronizedMap(new LinkedHashMap<K, Entry<V>>(64, 0.75f, true) {
-                @Override
-                protected boolean removeEldestEntry(Map.Entry<K, Entry<V>> eldest) {
-                    return size() > TimedLruCache.this.maxEntries;
-                }
-            });
-        }
-
-        V getIfPresent(K key) {
-            Entry<V> entry = map.get(key);
-            if (entry == null) {
-                return null;
-            }
-            if (ttlMs > 0 && entry.expiresAtMs < System.currentTimeMillis()) {
-                map.remove(key);
-                return null;
-            }
-            return entry.value;
-        }
-
-        void put(K key, V value) {
-            long expiresAt = ttlMs > 0 ? System.currentTimeMillis() + ttlMs : Long.MAX_VALUE;
-            map.put(key, new Entry<>(value, expiresAt));
-        }
-
-        static class Entry<V> {
-            final V value;
-            final long expiresAtMs;
-
-            Entry(V value, long expiresAtMs) {
-                this.value = value;
-                this.expiresAtMs = expiresAtMs;
-            }
-        }
-
-    }
 }

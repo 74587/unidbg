@@ -31,10 +31,6 @@ public class AutoRestartService {
         restarting.set(false);
     }
 
-    public boolean isRestarting() {
-        return restarting.get() || ProcessLifecycle.isShuttingDown();
-    }
-
     public void recordFailure(String reason) {
         if (!downloadProperties.isAutoRestartEnabled()) {
             return;

@@ -16,7 +16,7 @@ import java.util.concurrent.CompletableFuture;
  */
 @Slf4j
 @RestController
-@RequestMapping(path = "/api", produces = MediaType.APPLICATION_JSON_VALUE)
+@RequestMapping(produces = MediaType.APPLICATION_JSON_VALUE)
 public class FQNovelController {
 
     @Autowired
@@ -27,7 +27,7 @@ public class FQNovelController {
 
     /**
      * 获取书籍详情（精简版 - 仅返回 Legado 需要的字段）
-     * 路径: /api/book/{bookId}
+     * 路径: /book/{bookId}
      * 
      * @param bookId 书籍ID
      * @return 书籍详情信息（精简）
@@ -58,7 +58,7 @@ public class FQNovelController {
 
     /**
      * 获取章节正文
-     * 路径: /api/chapter/{bookId}/{chapterId}
+     * 路径: /chapter/{bookId}/{chapterId}
      * 
      * @param bookId 书籍ID
      * @param chapterId 章节ID

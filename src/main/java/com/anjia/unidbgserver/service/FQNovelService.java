@@ -6,7 +6,6 @@ import com.anjia.unidbgserver.dto.*;
 import com.anjia.unidbgserver.utils.FQApiUtils;
 import com.anjia.unidbgserver.utils.GzipUtils;
 import com.anjia.unidbgserver.utils.ProcessLifecycle;
-import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.*;
@@ -19,8 +18,6 @@ import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executor;
 import java.util.concurrent.ThreadLocalRandom;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 
 /**
  * FQNovel 小说内容获取服务
@@ -30,18 +27,10 @@ import java.util.regex.Pattern;
 @Service
 public class FQNovelService {
 
-    // 修复问题 #12：定义静态正则表达式常量，提高性能
-    private static final Pattern BLK_PATTERN = Pattern.compile("<blk[^>]*>([^<]*)</blk>", Pattern.CASE_INSENSITIVE);
-    private static final Pattern TITLE_PATTERN = Pattern.compile("<h1[^>]*>.*?<blk[^>]*>([^<]*)</blk>.*?</h1>", Pattern.CASE_INSENSITIVE | Pattern.DOTALL);
+
 
     @Resource(name = "fqEncryptWorker")
     private FQEncryptServiceWorker fqEncryptServiceWorker;
-
-    @Resource
-    private FQRegisterKeyService registerKeyService;
-
-    @Resource
-    private FQContentService fqContentService;
 
     @Resource
     private FQApiProperties fqApiProperties;
@@ -127,7 +116,7 @@ public class FQNovelService {
 
                     // 使用现有的签名服务生成签名
                     upstreamRateLimiter.acquire();
-                    Map<String, String> signedHeaders = fqEncryptServiceWorker.generateSignatureHeaders(fullUrl, headers).get();
+                    Map<String, String> signedHeaders = fqEncryptServiceWorker.generateSignatureHeadersSync(fullUrl, headers);
                     if (signedHeaders == null || signedHeaders.isEmpty()) {
                         throw new IllegalStateException("签名生成失败");
                     }
@@ -299,6 +288,7 @@ public class FQNovelService {
         directoryRequest.setBookId(trimmedBookId);
         directoryRequest.setBookType(0);
         directoryRequest.setNeedVersion(true);
+        directoryRequest.setMinimalResponse(false);
 
         // 避免在同一线程池内阻塞 .get() 导致线程耗尽/死锁：使用 thenApply 链式处理
         return fqSearchService.getBookDirectory(directoryRequest)
@@ -359,166 +349,6 @@ public class FQNovelService {
     }
 
     /**
-     * 获取解密的章节内容
-     *
-     * @param itemIds 章节ID列表，逗号分隔
-     * @param bookId 书籍ID
-     * @param download 是否下载模式
-     * @return 解密后的章节内容列表
-     */
-    public CompletableFuture<FQNovelResponse<List<Map.Entry<String, String>>>> getDecryptedContents(String itemIds, String bookId, boolean download) {
-        // 避免在同一线程池内阻塞 .get() 导致线程耗尽/死锁：使用 thenApply 链式处理
-        return batchFull(itemIds, bookId, download)
-            .thenApply(batchResponse -> {
-                if (batchResponse == null || batchResponse.getCode() == null || batchResponse.getCode() != 0 || batchResponse.getData() == null) {
-                    String msg = batchResponse != null ? batchResponse.getMessage() : "空响应";
-                    return FQNovelResponse.<List<Map.Entry<String, String>>>error("获取内容失败: " + msg);
-                }
-
-                List<Map.Entry<String, String>> decryptedContents = fqContentService.decryptBatchContents(batchResponse.getData());
-                return FQNovelResponse.success(decryptedContents);
-            })
-            .exceptionally(e -> {
-                Throwable t = e instanceof java.util.concurrent.CompletionException && e.getCause() != null ? e.getCause() : e;
-                log.error("获取解密章节内容失败 - itemIds: {}", itemIds, t);
-                String msg = t.getMessage() != null ? t.getMessage() : t.toString();
-                return FQNovelResponse.error("获取解密章节内容失败: " + msg);
-            });
-    }
-
-    /**
-     * 获取章节内容 (使用新的API模式)
-     *
-     * @param request 包含书籍ID和章节ID的请求
-     * @return 章节内容
-     */
-    public CompletableFuture<FQNovelResponse<FQNovelChapterInfo>> getChapterContent(FQNovelRequest request) {
-        if (request == null) {
-            return CompletableFuture.completedFuture(FQNovelResponse.error("请求不能为空"));
-        }
-        if (request.getBookId() == null || request.getChapterId() == null) {
-            return CompletableFuture.completedFuture(FQNovelResponse.error("书籍ID和章节ID不能为空"));
-        }
-
-        final String bookId = request.getBookId().trim();
-        final String itemIds = request.getChapterId().trim();
-        final String token = request.getToken();
-
-        if (bookId.isEmpty() || itemIds.isEmpty()) {
-            return CompletableFuture.completedFuture(FQNovelResponse.error("书籍ID和章节ID不能为空"));
-        }
-
-        // 避免在同一线程池内阻塞 .get() 导致线程耗尽/死锁：使用 thenApply 链式处理
-        return batchFull(itemIds, bookId, false, token)
-            .thenApply(batchResponse -> {
-                if (batchResponse == null || batchResponse.getCode() == null || batchResponse.getCode() != 0 || batchResponse.getData() == null) {
-                    String msg = batchResponse != null ? batchResponse.getMessage() : "空响应";
-                    return FQNovelResponse.<FQNovelChapterInfo>error("获取章节内容失败: " + msg);
-                }
-
-                FqIBatchFullResponse batchFullResponse = batchResponse.getData();
-                Map<String, ItemContent> dataMap = batchFullResponse.getData();
-                if (dataMap == null || dataMap.isEmpty()) {
-                    return FQNovelResponse.<FQNovelChapterInfo>error("未找到章节数据");
-                }
-
-                String chapterId = itemIds;
-                ItemContent itemContent = dataMap.get(chapterId);
-                if (itemContent == null) {
-                    itemContent = dataMap.values().iterator().next();
-                    chapterId = dataMap.keySet().iterator().next();
-                }
-                if (itemContent == null) {
-                    return FQNovelResponse.<FQNovelChapterInfo>error("未找到章节内容");
-                }
-
-                String decryptedContent;
-                try {
-                    decryptedContent = fqContentService.decryptAndDecompress(itemContent);
-                } catch (Exception e) {
-                    log.error("解密章节内容失败 - chapterId: {}", chapterId, e);
-                    return FQNovelResponse.<FQNovelChapterInfo>error("解密章节内容失败: " + e.getMessage());
-                }
-
-                String txtContent = extractTextFromHtml(decryptedContent);
-
-                FQNovelChapterInfo chapterInfo = new FQNovelChapterInfo();
-                chapterInfo.setChapterId(chapterId);
-                chapterInfo.setBookId(bookId);
-                chapterInfo.setRawContent(decryptedContent);
-                chapterInfo.setTxtContent(txtContent);
-
-                String title = itemContent.getTitle();
-                if (title == null || title.trim().isEmpty()) {
-                    Matcher titleMatcher = TITLE_PATTERN.matcher(decryptedContent);
-                    if (titleMatcher.find()) {
-                        title = titleMatcher.group(1).trim();
-                    } else {
-                        title = "章节标题";
-                    }
-                }
-                chapterInfo.setTitle(title);
-
-                FQNovelData novelData = itemContent.getNovelData();
-                chapterInfo.setAuthorName(novelData != null ? novelData.getAuthor() : "未知作者");
-                chapterInfo.setWordCount(txtContent.length());
-                chapterInfo.setUpdateTime(System.currentTimeMillis());
-
-                return FQNovelResponse.success(chapterInfo);
-            })
-            .exceptionally(e -> {
-                Throwable t = e instanceof java.util.concurrent.CompletionException && e.getCause() != null ? e.getCause() : e;
-                log.error("获取章节内容失败 - bookId: {}, chapterId: {}", bookId, itemIds, t);
-                String msg = t.getMessage() != null ? t.getMessage() : t.toString();
-                return FQNovelResponse.error("获取章节内容失败: " + msg);
-            });
-    }
-
-    /**
-     * 从HTML内容中提取纯文本
-     * 主要提取 <blk> 标签中的文本内容，按照 e_order 排序
-     *
-     * @param htmlContent HTML内容
-     * @return 提取的纯文本内容
-     */
-    private String extractTextFromHtml(String htmlContent) {
-        if (htmlContent == null || htmlContent.trim().isEmpty()) {
-            return "";
-        }
-
-        StringBuilder textBuilder = new StringBuilder();
-
-        try {
-            // 使用正则表达式提取 <blk> 标签中的文本内容
-            // 修复问题 #12：使用预编译的静态正则表达式
-            Matcher matcher = BLK_PATTERN.matcher(htmlContent);
-
-            while (matcher.find()) {
-                String text = matcher.group(1);
-                if (text != null && !text.trim().isEmpty()) {
-                    textBuilder.append(text.trim()).append("\n");
-                }
-            }
-
-            // 如果没有找到 <blk> 标签，尝试提取所有文本内容
-            if (textBuilder.length() == 0) {
-                // 简单的HTML标签移除，保留文本内容
-                String text = htmlContent.replaceAll("<[^>]+>", "").trim();
-                if (!text.isEmpty()) {
-                    textBuilder.append(text);
-                }
-            }
-
-        } catch (Exception e) {
-            log.warn("HTML文本提取失败，返回原始内容", e);
-            // 如果解析失败，返回去除HTML标签的简单文本
-            return htmlContent.replaceAll("<[^>]+>", "").trim();
-        }
-
-        return textBuilder.toString().trim();
-    }
-
-    /**
      * 将FQNovelBookInfoResp转换为FQNovelBookInfo（精简版 - 仅映射必要字段）
      *
      * @param resp 原始响应对象
@@ -532,7 +362,11 @@ public class FQNovelService {
         info.setBookId(bookId);
         info.setBookName(resp.getBookName());
         info.setAuthor(resp.getAuthor());
-        info.setDescription(resp.getAbstractContent());
+        String description = resp.getAbstractContent();
+        if (description == null || description.trim().isEmpty()) {
+            description = resp.getBookAbstractV2();
+        }
+        info.setDescription(description);
         info.setCoverUrl(resp.getThumbUrl());
         info.setWordNumber(resp.getWordNumber());
         info.setLastChapterTitle(resp.getLastChapterTitle());

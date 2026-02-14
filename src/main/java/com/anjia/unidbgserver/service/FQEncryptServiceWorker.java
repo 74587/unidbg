@@ -100,13 +100,13 @@ public class FQEncryptServiceWorker extends Worker {
     }
 
     /**
-     * 异步生成FQ签名headers
+     * 同步生成FQ签名headers
      *
      * @param url 请求的URL
      * @param headers 请求头信息
-     * @return 包含签名信息的CompletableFuture
+     * @return 包含签名信息的签名头
      */
-    public CompletableFuture<Map<String, String>> generateSignatureHeaders(String url, String headers) {
+    public Map<String, String> generateSignatureHeadersSync(String url, String headers) {
         Map<String, String> result;
 
         if (this.unidbgProperties.isAsync()) {
@@ -129,17 +129,17 @@ public class FQEncryptServiceWorker extends Worker {
             }
         }
 
-        return CompletableFuture.completedFuture(result);
+        return result;
     }
 
     /**
-     * 异步生成FQ签名headers (重载方法，支持Map格式的headers)
+     * 同步生成FQ签名headers (重载方法，支持Map格式的headers)
      *
      * @param url 请求的URL
      * @param headerMap 请求头的Map
-     * @return 包含签名信息的CompletableFuture
+     * @return 包含签名信息的签名头
      */
-    public CompletableFuture<Map<String, String>> generateSignatureHeaders(String url, Map<String, String> headerMap) {
+    public Map<String, String> generateSignatureHeadersSync(String url, Map<String, String> headerMap) {
         Map<String, String> result;
 
         if (this.unidbgProperties.isAsync()) {
@@ -162,7 +162,21 @@ public class FQEncryptServiceWorker extends Worker {
             }
         }
 
-        return CompletableFuture.completedFuture(result);
+        return result;
+    }
+
+    /**
+     * 兼容旧调用：返回已完成的 future。
+     */
+    public CompletableFuture<Map<String, String>> generateSignatureHeaders(String url, String headers) {
+        return CompletableFuture.completedFuture(generateSignatureHeadersSync(url, headers));
+    }
+
+    /**
+     * 兼容旧调用：返回已完成的 future。
+     */
+    public CompletableFuture<Map<String, String>> generateSignatureHeaders(String url, Map<String, String> headerMap) {
+        return CompletableFuture.completedFuture(generateSignatureHeadersSync(url, headerMap));
     }
 
     /**

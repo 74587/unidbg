@@ -176,7 +176,7 @@ public class FQRegisterKeyService {
         Map<String, String> headers = fqApiUtils.buildRegisterKeyHeaders(currentTime);
 
         // 使用现有的签名服务生成签名
-        Map<String, String> signedHeaders = fqEncryptServiceWorker.generateSignatureHeaders(fullUrl, headers).get();
+        Map<String, String> signedHeaders = fqEncryptServiceWorker.generateSignatureHeadersSync(fullUrl, headers);
         if (signedHeaders == null || signedHeaders.isEmpty()) {
             throw new IllegalStateException("签名生成失败，无法请求 registerkey");
         }

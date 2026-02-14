@@ -22,7 +22,9 @@ public class StartupStatusLogger {
     @EventListener(ApplicationReadyEvent.class)
     public void onReady() {
         String poolName = deviceRotationService.getCurrentProfileName();
-        String deviceId = fqApiProperties.getDevice() != null ? fqApiProperties.getDevice().getDeviceId() : null;
+        FQApiProperties.RuntimeProfile runtimeProfile = fqApiProperties.getRuntimeProfile();
+        FQApiProperties.Device runtimeDevice = runtimeProfile != null ? runtimeProfile.getDevice() : null;
+        String deviceId = runtimeDevice != null ? runtimeDevice.getDeviceId() : null;
         int poolSize = fqApiProperties.getDevicePool() != null ? fqApiProperties.getDevicePool().size() : 0;
 
         log.info("设备配置：池大小={}, 当前={}, ID={}", poolSize, poolName, deviceId);

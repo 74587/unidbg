@@ -108,12 +108,20 @@ public class FQApiUtils {
     public Map<String, String> buildCommonHeaders(long currentTime) {
         // 注意：签名算法对 header key 的大小写/顺序可能敏感；这里尽量对齐抓包/测试样例（小写 + 固定顺序）
         Map<String, String> headers = new LinkedHashMap<>();
+        FQApiProperties.RuntimeProfile runtimeProfile = fqApiProperties.getRuntimeProfile();
+        FQApiProperties.Device device = runtimeProfile != null ? runtimeProfile.getDevice() : null;
+        String installId = device != null ? device.getInstallId() : null;
 
         // 标准请求头（顺序参考抓包 header block）
         headers.put("accept", "application/json; charset=utf-8,application/x-protobuf");
-        String installId = fqApiProperties.getDevice() != null ? fqApiProperties.getDevice().getInstallId() : null;
-        headers.put("cookie", CookieUtils.normalizeInstallId(fqApiProperties.getCookie(), installId));
-        headers.put("user-agent", fqApiProperties.getUserAgent());
+        String cookie = CookieUtils.normalizeInstallId(runtimeProfile != null ? runtimeProfile.getCookie() : null, installId);
+        if (cookie != null) {
+            headers.put("cookie", cookie);
+        }
+        String userAgent = runtimeProfile != null ? runtimeProfile.getUserAgent() : null;
+        if (userAgent != null) {
+            headers.put("user-agent", userAgent);
+        }
         headers.put("accept-encoding", "gzip");
         headers.put("x-xs-from-web", "0");
         headers.put("x-vc-bdturing-sdk-version", "3.7.2.cn");
@@ -124,11 +132,34 @@ public class FQApiUtils {
         headers.put("lc", "101");
         headers.put("x-ss-req-ticket", String.valueOf(currentTime));
         headers.put("passport-sdk-version", "50564");
-        if (fqApiProperties.getDevice() != null && fqApiProperties.getDevice().getAid() != null) {
-            headers.put("x-ss-dp", fqApiProperties.getDevice().getAid());
+        if (device != null && device.getAid() != null) {
+            headers.put("x-ss-dp", device.getAid());
         }
 
         return headers;
+    }
+
+    /**
+     * 构建搜索接口请求头。
+     * 某些搜索请求需要携带 authorization: Bearer，并尽量保持 header 顺序稳定。
+     */
+    public Map<String, String> buildSearchHeaders() {
+        Map<String, String> base = buildCommonHeaders();
+        if (base.containsKey("authorization")) {
+            return base;
+        }
+
+        Map<String, String> ordered = new LinkedHashMap<>();
+        for (Map.Entry<String, String> entry : base.entrySet()) {
+            ordered.put(entry.getKey(), entry.getValue());
+            if ("x-reading-request".equalsIgnoreCase(entry.getKey())) {
+                ordered.put("authorization", "Bearer");
+            }
+        }
+        if (!ordered.containsKey("authorization")) {
+            ordered.put("authorization", "Bearer");
+        }
+        return ordered;
     }
 
     /**
@@ -285,6 +316,10 @@ public Map<String, String> buildSearchParams(FqVariable var, FQSearchRequest sea
         return Boolean.TRUE.equals(value) ? "1" : "0";
     }
 
+    private static boolean hasText(String value) {
+        return value != null && !value.trim().isEmpty();
+    }
+
     /**
      * 构建目录API参数
      * 在通用参数基础上添加目录特定参数
@@ -306,21 +341,23 @@ public Map<String, String> buildSearchParams(FqVariable var, FQSearchRequest sea
 
         Integer bookType = directoryRequest.getBookType();
         Boolean needVersion = directoryRequest.getNeedVersion();
+        boolean minimalResponse = Boolean.TRUE.equals(directoryRequest.getMinimalResponse());
         String bookId = directoryRequest.getBookId();
+        boolean finalNeedVersion = minimalResponse ? Boolean.FALSE : (needVersion != null ? needVersion : Boolean.TRUE);
 
         params.put("book_type", String.valueOf(bookType != null ? bookType : 0));
         params.put("book_id", bookId != null ? bookId : "");
-        params.put("need_version", String.valueOf(needVersion != null ? needVersion : Boolean.TRUE));
+        params.put("need_version", String.valueOf(finalNeedVersion));
 
         // 可选MD5参数
-        if (directoryRequest.getItemDataListMd5() != null) {
-            params.put("item_data_list_md5", directoryRequest.getItemDataListMd5());
+        if (hasText(directoryRequest.getItemDataListMd5())) {
+            params.put("item_data_list_md5", directoryRequest.getItemDataListMd5().trim());
         }
-        if (directoryRequest.getCatalogDataMd5() != null) {
-            params.put("catalog_data_md5", directoryRequest.getCatalogDataMd5());
+        if (hasText(directoryRequest.getCatalogDataMd5())) {
+            params.put("catalog_data_md5", directoryRequest.getCatalogDataMd5().trim());
         }
-        if (directoryRequest.getBookInfoMd5() != null) {
-            params.put("book_info_md5", directoryRequest.getBookInfoMd5());
+        if (hasText(directoryRequest.getBookInfoMd5())) {
+            params.put("book_info_md5", directoryRequest.getBookInfoMd5().trim());
         }
 
         return params;

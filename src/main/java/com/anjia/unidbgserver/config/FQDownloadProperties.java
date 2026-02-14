@@ -49,7 +49,7 @@ public class FQDownloadProperties {
     /**
      * 章节内容缓存最大条数
      */
-    private int chapterCacheMaxEntries = 500;
+    private int chapterCacheMaxEntries = 2000;
 
     /**
      * 章节缓存 TTL（ms）
@@ -57,9 +57,34 @@ public class FQDownloadProperties {
     private long chapterCacheTtlMs = 30 * 60 * 1000L;
 
     /**
+     * 章节响应是否包含 rawContent（原始 HTML）。默认关闭以减少内存与传输开销。
+     */
+    private boolean chapterIncludeRawContent = false;
+
+    /**
      * 目录缓存 TTL（ms）
      */
     private long directoryCacheTtlMs = 30 * 60 * 1000L;
+
+    /**
+     * 搜索结果缓存最大条数（短 TTL，避免搜索页频繁回源）
+     */
+    private int searchCacheMaxEntries = 256;
+
+    /**
+     * 搜索结果缓存 TTL（ms）
+     */
+    private long searchCacheTtlMs = 45 * 1000L;
+
+    /**
+     * 目录接口缓存最大条数（/toc 与 /book 共用）
+     */
+    private int apiDirectoryCacheMaxEntries = 512;
+
+    /**
+     * 目录接口缓存 TTL（ms）
+     */
+    private long apiDirectoryCacheTtlMs = 10 * 60 * 1000L;
 
     /**
      * 自动重启开关：当连续异常达到阈值后，主动退出进程（由 Docker/systemd 拉起）。

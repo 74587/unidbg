@@ -6,7 +6,10 @@ import com.anjia.unidbgserver.constants.FQConstants;
 import com.anjia.unidbgserver.dto.*;
 import com.anjia.unidbgserver.utils.FQApiUtils;
 import com.anjia.unidbgserver.utils.GzipUtils;
+import com.anjia.unidbgserver.utils.LocalCacheFactory;
 import com.anjia.unidbgserver.utils.ProcessLifecycle;
+import com.anjia.unidbgserver.utils.SearchIdExtractor;
+import com.github.benmanes.caffeine.cache.Cache;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.extern.slf4j.Slf4j;
@@ -14,11 +17,16 @@ import org.springframework.http.*;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestTemplate;
 
+import javax.annotation.PostConstruct;
 import javax.annotation.Resource;
 import java.net.URI;
+import java.time.Instant;
+import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
 import java.util.*;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executor;
 
 /**
@@ -28,6 +36,9 @@ import java.util.concurrent.Executor;
 @Slf4j
 @Service
 public class FQSearchService {
+
+    private static final DateTimeFormatter CHAPTER_TIME_FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
+    private static final ZoneId SYSTEM_ZONE_ID = ZoneId.systemDefault();
 
     @Resource(name = "fqEncryptWorker")
     private FQEncryptServiceWorker fqEncryptServiceWorker;
@@ -62,24 +73,19 @@ public class FQSearchService {
     @Resource(name = "applicationTaskExecutor")
     private Executor taskExecutor;
 
-    private Map<String, String> buildSearchHeaders() {
-        Map<String, String> base = fqApiUtils.buildCommonHeaders();
-        if (base.containsKey("authorization")) {
-            return base;
-        }
+    private Cache<String, FQSearchResponse> searchCache;
+    private Cache<String, FQDirectoryResponse> directoryApiCache;
+    private final ConcurrentHashMap<String, CompletableFuture<FQNovelResponse<FQSearchResponse>>> inflightSearch = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<String, CompletableFuture<FQNovelResponse<FQDirectoryResponse>>> inflightDirectory = new ConcurrentHashMap<>();
 
-        // 尽量保持 header 插入顺序与抓包样例一致（authorization 放在 x-reading-request 后）
-        Map<String, String> ordered = new LinkedHashMap<>();
-        for (Map.Entry<String, String> entry : base.entrySet()) {
-            ordered.put(entry.getKey(), entry.getValue());
-            if ("x-reading-request".equalsIgnoreCase(entry.getKey())) {
-                ordered.put("authorization", "Bearer");
-            }
-        }
-        if (!ordered.containsKey("authorization")) {
-            ordered.put("authorization", "Bearer");
-        }
-        return ordered;
+    @PostConstruct
+    public void initCaches() {
+        int searchMax = Math.max(1, downloadProperties.getSearchCacheMaxEntries());
+        long searchTtl = Math.max(0L, downloadProperties.getSearchCacheTtlMs());
+        int directoryMax = Math.max(1, downloadProperties.getApiDirectoryCacheMaxEntries());
+        long directoryTtl = Math.max(0L, downloadProperties.getApiDirectoryCacheTtlMs());
+        this.searchCache = LocalCacheFactory.build(searchMax, searchTtl);
+        this.directoryApiCache = LocalCacheFactory.build(directoryMax, directoryTtl);
     }
 
     private static boolean isBlank(String value) {
@@ -159,54 +165,65 @@ public class FQSearchService {
     }
 
     /**
-     * 尝试从任意层级提取 search_id（兼容不同响应结构）。
-     */
-    private static String deepFindSearchId(JsonNode root) {
-        if (root == null) {
-            return "";
-        }
-
-        // 常见字段：search_id / searchId / search_id_str
-        String direct = firstNonBlank(
-            root.path("search_id").asText(""),
-            root.path("searchId").asText(""),
-            root.path("search_id_str").asText("")
-        );
-        if (!isBlank(direct)) {
-            return direct;
-        }
-
-        Deque<JsonNode> stack = new ArrayDeque<>();
-        stack.push(root);
-        while (!stack.isEmpty()) {
-            JsonNode node = stack.pop();
-            if (node == null) continue;
-
-            if (node.isObject()) {
-                String found = firstNonBlank(
-                    node.path("search_id").asText(""),
-                    node.path("searchId").asText(""),
-                    node.path("search_id_str").asText("")
-                );
-                if (!isBlank(found)) {
-                    return found;
-                }
-                node.fields().forEachRemaining(e -> stack.push(e.getValue()));
-            } else if (node.isArray()) {
-                for (JsonNode child : node) {
-                    stack.push(child);
-                }
-            }
-        }
-
-        return "";
-    }
-
-    /**
      * 获取默认FQ变量（延迟初始化）
      */
     private FqVariable getDefaultFqVariable() {
         return new FqVariable(fqApiProperties);
+    }
+
+    private static String normalizeCachePart(String value) {
+        if (value == null) {
+            return "";
+        }
+        return value.trim();
+    }
+
+    private static String buildSearchCacheKey(FQSearchRequest request) {
+        if (request == null) {
+            return null;
+        }
+        String query = normalizeCachePart(request.getQuery());
+        if (query.isEmpty()) {
+            return null;
+        }
+        int offset = request.getOffset() != null ? request.getOffset() : 0;
+        int count = request.getCount() != null ? request.getCount() : 20;
+        int tabType = request.getTabType() != null ? request.getTabType() : 1;
+        String searchId = normalizeCachePart(request.getSearchId());
+        return query + "|" + offset + "|" + count + "|" + tabType + "|" + searchId;
+    }
+
+    private static String buildDirectoryCacheKey(FQDirectoryRequest request) {
+        if (request == null) {
+            return null;
+        }
+        String bookId = normalizeCachePart(request.getBookId());
+        if (bookId.isEmpty()) {
+            return null;
+        }
+        int bookType = request.getBookType() != null ? request.getBookType() : 0;
+        boolean minimalResponse = Boolean.TRUE.equals(request.getMinimalResponse());
+        boolean needVersion = minimalResponse
+            ? false
+            : (request.getNeedVersion() == null || request.getNeedVersion());
+        String itemMd5 = normalizeCachePart(request.getItemDataListMd5());
+        String catalogMd5 = normalizeCachePart(request.getCatalogDataMd5());
+        String bookInfoMd5 = normalizeCachePart(request.getBookInfoMd5());
+        return bookId + "|" + bookType + "|" + needVersion + "|" + minimalResponse + "|" + itemMd5 + "|" + catalogMd5 + "|" + bookInfoMd5;
+    }
+
+    private static boolean isSearchCacheable(FQNovelResponse<FQSearchResponse> response) {
+        return response != null
+            && response.getCode() != null
+            && response.getCode() == 0
+            && response.getData() != null;
+    }
+
+    private static boolean isDirectoryCacheable(FQNovelResponse<FQDirectoryResponse> response) {
+        return response != null
+            && response.getCode() != null
+            && response.getCode() == 0
+            && response.getData() != null;
     }
 
     /**
@@ -216,152 +233,199 @@ public class FQSearchService {
      * @return 搜索结果
      */
     public CompletableFuture<FQNovelResponse<FQSearchResponse>> searchBooksEnhanced(FQSearchRequest searchRequest) {
-        return CompletableFuture.supplyAsync(() -> {
-            try {
-                if (ProcessLifecycle.isShuttingDown()) {
-                    return FQNovelResponse.error("服务正在退出中，请稍后重试");
-                }
+        if (ProcessLifecycle.isShuttingDown()) {
+            return CompletableFuture.completedFuture(FQNovelResponse.error("服务正在退出中，请稍后重试"));
+        }
 
-                if (searchRequest == null) {
-                    return FQNovelResponse.error("搜索请求不能为空");
-                }
+        String cacheKey = buildSearchCacheKey(searchRequest);
+        if (cacheKey == null) {
+            return CompletableFuture.supplyAsync(() -> searchBooksEnhancedInternal(searchRequest), taskExecutor);
+        }
 
-                searchRequestEnricher.enrich(searchRequest);
+        FQSearchResponse cached = searchCache.getIfPresent(cacheKey);
+        if (cached != null) {
+            autoRestartService.recordSuccess();
+            if (log.isDebugEnabled()) {
+                log.debug("搜索缓存命中 - key: {}", cacheKey);
+            }
+            return CompletableFuture.completedFuture(FQNovelResponse.success(cached));
+        }
 
-                // 如果用户已经提供了search_id，直接进行搜索
-                if (searchRequest.getSearchId() != null && !searchRequest.getSearchId().trim().isEmpty()) {
-                    FQNovelResponse<FQSearchResponse> response = performSearchWithId(searchRequest);
-                    if (response != null && response.getCode() != null && response.getCode() == 0) {
-                        autoRestartService.recordSuccess();
-                    } else {
-                        autoRestartService.recordFailure("SEARCH_WITH_ID_FAIL");
+        CompletableFuture<FQNovelResponse<FQSearchResponse>> existing = inflightSearch.get(cacheKey);
+        if (existing != null) {
+            return existing;
+        }
+
+        CompletableFuture<FQNovelResponse<FQSearchResponse>> created = new CompletableFuture<>();
+        existing = inflightSearch.putIfAbsent(cacheKey, created);
+        if (existing != null) {
+            return existing;
+        }
+
+        CompletableFuture.supplyAsync(() -> searchBooksEnhancedInternal(searchRequest), taskExecutor)
+            .whenComplete((response, ex) -> {
+                try {
+                    if (ex != null) {
+                        created.completeExceptionally(ex);
+                        return;
                     }
-                    return response;
+                    if (isSearchCacheable(response)) {
+                        searchCache.put(cacheKey, response.getData());
+                    }
+                    created.complete(response);
+                } finally {
+                    inflightSearch.remove(cacheKey, created);
                 }
+            });
 
-                // 第一阶段：获取search_id
-                FQSearchRequest firstRequest = createFirstPhaseRequest(searchRequest);
-                FQNovelResponse<FQSearchResponse> firstResponse = performSearchInternal(firstRequest);
+        return created;
+    }
 
-                if (firstResponse.getCode() != 0) {
-                    // 某些风控/异常场景下，上游可能返回非 0；尝试切换设备后再试一次
-                    if (shouldRotate(firstResponse.getMessage())) {
-                        DeviceInfo rotated = deviceRotationService.rotateIfNeeded("SEARCH_PHASE1_FAIL");
-                        if (rotated != null) {
-                            firstResponse = performSearchInternal(firstRequest);
-                            if (firstResponse.getCode() == 0) {
-                                // 继续走后续逻辑
-                            } else {
-                                log.warn("第一阶段搜索失败 - code: {}, message: {}", firstResponse.getCode(), firstResponse.getMessage());
-                                autoRestartService.recordFailure("SEARCH_PHASE1_FAIL");
-                                return firstResponse;
-                            }
+    private FQNovelResponse<FQSearchResponse> searchBooksEnhancedInternal(FQSearchRequest searchRequest) {
+        try {
+            if (ProcessLifecycle.isShuttingDown()) {
+                return FQNovelResponse.error("服务正在退出中，请稍后重试");
+            }
+
+            if (searchRequest == null) {
+                return FQNovelResponse.error("搜索请求不能为空");
+            }
+
+            searchRequestEnricher.enrich(searchRequest);
+
+            // 如果用户已经提供了search_id，直接进行搜索
+            if (searchRequest.getSearchId() != null && !searchRequest.getSearchId().trim().isEmpty()) {
+                FQNovelResponse<FQSearchResponse> response = performSearchWithId(searchRequest);
+                if (response != null && response.getCode() != null && response.getCode() == 0) {
+                    autoRestartService.recordSuccess();
+                } else {
+                    autoRestartService.recordFailure("SEARCH_WITH_ID_FAIL");
+                }
+                return response;
+            }
+
+            // 第一阶段：获取search_id
+            FQSearchRequest firstRequest = createFirstPhaseRequest(searchRequest);
+            FQNovelResponse<FQSearchResponse> firstResponse = performSearchInternal(firstRequest);
+
+            if (firstResponse.getCode() != 0) {
+                // 某些风控/异常场景下，上游可能返回非 0；尝试切换设备后再试一次
+                if (shouldRotate(firstResponse.getMessage())) {
+                    DeviceInfo rotated = deviceRotationService.rotateIfNeeded("SEARCH_PHASE1_FAIL");
+                    if (rotated != null) {
+                        firstResponse = performSearchInternal(firstRequest);
+                        if (firstResponse.getCode() == 0) {
+                            // 继续走后续逻辑
                         } else {
                             log.warn("第一阶段搜索失败 - code: {}, message: {}", firstResponse.getCode(), firstResponse.getMessage());
                             autoRestartService.recordFailure("SEARCH_PHASE1_FAIL");
                             return firstResponse;
                         }
-                    }
-                    if (firstResponse.getCode() != 0) {
+                    } else {
                         log.warn("第一阶段搜索失败 - code: {}, message: {}", firstResponse.getCode(), firstResponse.getMessage());
                         autoRestartService.recordFailure("SEARCH_PHASE1_FAIL");
                         return firstResponse;
                     }
                 }
+                if (firstResponse.getCode() != 0) {
+                    log.warn("第一阶段搜索失败 - code: {}, message: {}", firstResponse.getCode(), firstResponse.getMessage());
+                    autoRestartService.recordFailure("SEARCH_PHASE1_FAIL");
+                    return firstResponse;
+                }
+            }
 
-                String firstSearchId = extractSearchId(firstResponse);
-                if (isBlank(firstSearchId)) {
-                    // 如果第一阶段已返回可用书籍列表（即使缺 search_id），直接返回，避免误判为“不可用”
-                    if (hasBooks(firstResponse)) {
-                        log.info("第一阶段未返回search_id，但已返回书籍结果，跳过第二阶段");
-                        autoRestartService.recordSuccess();
-                        return firstResponse;
-                    }
+            String firstSearchId = extractSearchId(firstResponse);
+            if (isBlank(firstSearchId)) {
+                // 如果第一阶段已返回可用书籍列表（即使缺 search_id），直接返回，避免误判为“不可用”
+                if (hasBooks(firstResponse)) {
+                    log.info("第一阶段未返回search_id，但已返回书籍结果，跳过第二阶段");
+                    autoRestartService.recordSuccess();
+                    return firstResponse;
+                }
 
-                    // 自愈：对“缺 search_id 且无结果”进行有限重试 + 轮换（最多轮换到池内其他设备）
-                    int perDeviceRetries = Math.max(1, Math.min(2, downloadProperties.getMaxRetries()));
-                    int maxDevices = Math.max(1, fqApiProperties.getDevicePool() != null ? fqApiProperties.getDevicePool().size() : 1);
+                // 自愈：对“缺 search_id 且无结果”进行有限重试 + 轮换（最多轮换到池内其他设备）
+                int perDeviceRetries = Math.max(1, Math.min(2, downloadProperties.getMaxRetries()));
+                int maxDevices = Math.max(1, fqApiProperties.getDevicePool() != null ? fqApiProperties.getDevicePool().size() : 1);
 
-                    FQNovelResponse<FQSearchResponse> candidate = firstResponse;
-                    String candidateSearchId = "";
+                FQNovelResponse<FQSearchResponse> candidate = firstResponse;
+                String candidateSearchId = "";
 
-                    for (int deviceAttempt = 0; deviceAttempt < maxDevices; deviceAttempt++) {
-                        if (deviceAttempt > 0) {
-                            DeviceInfo rotated = deviceRotationService.forceRotate("SEARCH_NO_SEARCH_ID");
-                            if (rotated == null) {
-                                break;
-                            }
-                        }
-
-                        for (int retryAttempt = 0; retryAttempt < perDeviceRetries; retryAttempt++) {
-                            if (deviceAttempt != 0 || retryAttempt != 0) {
-                                sleepRetryBackoff(deviceAttempt * perDeviceRetries + retryAttempt + 1);
-                                candidate = performSearchInternal(firstRequest);
-                            }
-
-                            candidateSearchId = extractSearchId(candidate);
-                            if (!isBlank(candidateSearchId)) {
-                                firstResponse = candidate;
-                                firstSearchId = candidateSearchId;
-                                break;
-                            }
-                            if (hasBooks(candidate)) {
-                                log.info("第一阶段未返回search_id，但重试后已返回书籍结果，跳过第二阶段");
-                                autoRestartService.recordSuccess();
-                                return candidate;
-                            }
-                        }
-
-                        if (!isBlank(firstSearchId)) {
+                for (int deviceAttempt = 0; deviceAttempt < maxDevices; deviceAttempt++) {
+                    if (deviceAttempt > 0) {
+                        DeviceInfo rotated = deviceRotationService.forceRotate("SEARCH_NO_SEARCH_ID");
+                        if (rotated == null) {
                             break;
                         }
                     }
 
-                    if (isBlank(firstSearchId)) {
-                        log.warn("第一阶段搜索未返回search_id（可能风控/上游异常），建议稍后重试");
-                        autoRestartService.recordFailure("SEARCH_NO_SEARCH_ID");
-                        return FQNovelResponse.error("上游未返回search_id（可能风控/上游异常），请稍后重试");
+                    for (int retryAttempt = 0; retryAttempt < perDeviceRetries; retryAttempt++) {
+                        if (deviceAttempt != 0 || retryAttempt != 0) {
+                            sleepRetryBackoff(deviceAttempt * perDeviceRetries + retryAttempt + 1);
+                            candidate = performSearchInternal(firstRequest);
+                        }
+
+                        candidateSearchId = extractSearchId(candidate);
+                        if (!isBlank(candidateSearchId)) {
+                            firstResponse = candidate;
+                            firstSearchId = candidateSearchId;
+                            break;
+                        }
+                        if (hasBooks(candidate)) {
+                            log.info("第一阶段未返回search_id，但重试后已返回书籍结果，跳过第二阶段");
+                            autoRestartService.recordSuccess();
+                            return candidate;
+                        }
+                    }
+
+                    if (!isBlank(firstSearchId)) {
+                        break;
                     }
                 }
 
-                String searchId = firstSearchId;
-
-                // 随机延迟（模拟真实用户行为）
-                try {
-                    long delay = ThreadLocalRandom.current().nextLong(
-                        FQConstants.Search.MIN_SEARCH_DELAY_MS, 
-                        FQConstants.Search.MAX_SEARCH_DELAY_MS + 1
-                    );
-                    Thread.sleep(delay);
-                    searchRequest.setLastSearchPageInterval((int) delay); // 设置间隔时间
-                } catch (InterruptedException e) {
-                    Thread.currentThread().interrupt();
-                    log.warn("延迟被中断", e);
+                if (isBlank(firstSearchId)) {
+                    log.warn("第一阶段搜索未返回search_id（可能风控/上游异常），建议稍后重试");
+                    autoRestartService.recordFailure("SEARCH_NO_SEARCH_ID");
+                    return FQNovelResponse.error("上游未返回search_id（可能风控/上游异常），请稍后重试");
                 }
-
-                // 第二阶段：使用search_id进行搜索
-                FQSearchRequest secondRequest = createSecondPhaseRequest(searchRequest, searchId);
-                FQNovelResponse<FQSearchResponse> secondResponse = performSearchInternal(secondRequest);
-
-                // 确保返回结果包含search_id
-                if (secondResponse.getCode() == 0 && secondResponse.getData() != null ){
-                    secondResponse.getData().setSearchId(searchId);
-                }
-
-                if (secondResponse != null && secondResponse.getCode() != null && secondResponse.getCode() == 0) {
-                    autoRestartService.recordSuccess();
-                } else {
-                    autoRestartService.recordFailure("SEARCH_PHASE2_FAIL");
-                }
-                return secondResponse;
-
-            } catch (Exception e) {
-                String query = searchRequest != null ? searchRequest.getQuery() : null;
-                log.error("增强搜索失败 - query: {}", query, e);
-                autoRestartService.recordFailure("SEARCH_EXCEPTION");
-                return FQNovelResponse.error("增强搜索失败: " + e.getMessage());
             }
-        }, taskExecutor);
+
+            String searchId = firstSearchId;
+
+            // 随机延迟（模拟真实用户行为）
+            try {
+                long delay = ThreadLocalRandom.current().nextLong(
+                    FQConstants.Search.MIN_SEARCH_DELAY_MS,
+                    FQConstants.Search.MAX_SEARCH_DELAY_MS + 1
+                );
+                Thread.sleep(delay);
+                searchRequest.setLastSearchPageInterval((int) delay); // 设置间隔时间
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                log.warn("延迟被中断", e);
+            }
+
+            // 第二阶段：使用search_id进行搜索
+            FQSearchRequest secondRequest = createSecondPhaseRequest(searchRequest, searchId);
+            FQNovelResponse<FQSearchResponse> secondResponse = performSearchInternal(secondRequest);
+
+            // 确保返回结果包含search_id
+            if (secondResponse.getCode() == 0 && secondResponse.getData() != null) {
+                secondResponse.getData().setSearchId(searchId);
+            }
+
+            if (secondResponse != null && secondResponse.getCode() != null && secondResponse.getCode() == 0) {
+                autoRestartService.recordSuccess();
+            } else {
+                autoRestartService.recordFailure("SEARCH_PHASE2_FAIL");
+            }
+            return secondResponse;
+
+        } catch (Exception e) {
+            String query = searchRequest != null ? searchRequest.getQuery() : null;
+            log.error("增强搜索失败 - query: {}", query, e);
+            autoRestartService.recordFailure("SEARCH_EXCEPTION");
+            return FQNovelResponse.error("增强搜索失败: " + e.getMessage());
+        }
     }
 
     /**
@@ -484,10 +548,10 @@ public class FQSearchService {
             String fullUrl = fqApiUtils.buildUrlWithParams(url, params);
 
             // 构建请求头
-            Map<String, String> headers = buildSearchHeaders();
+            Map<String, String> headers = fqApiUtils.buildSearchHeaders();
 
             // 生成签名
-            Map<String, String> signedHeaders = fqEncryptServiceWorker.generateSignatureHeaders(fullUrl, headers).get();
+            Map<String, String> signedHeaders = fqEncryptServiceWorker.generateSignatureHeadersSync(fullUrl, headers);
             if (signedHeaders == null || signedHeaders.isEmpty()) {
                 log.error("签名生成失败，终止请求 - url: {}", fullUrl);
                 return FQNovelResponse.error("签名生成失败");
@@ -525,7 +589,7 @@ public class FQSearchService {
 
             // 兜底：如果 parseSearchResponse 没取到 search_id，再做一次深度提取（含 root/data/log_pb 等）
             if (searchResponse != null && isBlank(searchResponse.getSearchId())) {
-                String fromBody = deepFindSearchId(jsonResponse);
+                String fromBody = SearchIdExtractor.deepFind(jsonResponse);
                 if (!isBlank(fromBody)) {
                     searchResponse.setSearchId(fromBody);
                 }
@@ -571,156 +635,140 @@ public class FQSearchService {
     }
 
     /**
-     * 搜索书籍
-     *
-     * @param searchRequest 搜索请求参数
-     * @return 搜索结果
-     */
-    public CompletableFuture<FQNovelResponse<FQSearchResponse>> searchBooks(FQSearchRequest searchRequest) {
-        return CompletableFuture.supplyAsync(() -> {
-            try {
-                if (ProcessLifecycle.isShuttingDown()) {
-                    return FQNovelResponse.error("服务正在退出中，请稍后重试");
-                }
-
-                if (searchRequest == null) {
-                    return FQNovelResponse.error("搜索请求不能为空");
-                }
-
-                searchRequestEnricher.enrich(searchRequest);
-
-                FqVariable var = getDefaultFqVariable();
-
-                // 构建搜索URL和参数
-                String url = fqApiUtils.getBaseUrl().replace("api5-normal-sinfonlineb", "api5-normal-sinfonlinec")
-                    + "/reading/bookapi/search/tab/v";
-                Map<String, String> params = fqApiUtils.buildSearchParams(var, searchRequest);
-                String fullUrl = fqApiUtils.buildUrlWithParams(url, params);
-
-                // 构建请求头
-                Map<String, String> headers = buildSearchHeaders();
-
-                // 生成签名
-                Map<String, String> signedHeaders = fqEncryptServiceWorker.generateSignatureHeaders(fullUrl, headers).get();
-
-                // 发起API请求
-                HttpHeaders httpHeaders = new HttpHeaders();
-                headers.forEach(httpHeaders::set);
-                signedHeaders.forEach(httpHeaders::set);
-
-                HttpEntity<String> entity = new HttpEntity<>(httpHeaders);
-
-                URI uri = URI.create(fullUrl);
-
-                upstreamRateLimiter.acquire();
-                ResponseEntity<byte[]> response = restTemplate.exchange(uri, HttpMethod.GET, entity, byte[].class);
-
-                // 解压缩 GZIP 响应体
-                String responseBody = GzipUtils.decompressGzipResponse(response.getBody());
-
-                // 解析响应
-                JsonNode jsonResponse = objectMapper.readTree(responseBody);
-
-                int tabType = searchRequest.getTabType(); // 从请求获取需要的tab_type
-                FQSearchResponse searchResponse = parseSearchResponse(jsonResponse,tabType);
-
-                autoRestartService.recordSuccess();
-                return FQNovelResponse.success(searchResponse);
-
-            } catch (Exception e) {
-                String query = searchRequest != null ? searchRequest.getQuery() : null;
-                log.error("搜索书籍失败 - query: {}", query, e);
-                autoRestartService.recordFailure("SEARCH_SIMPLE_EXCEPTION");
-                return FQNovelResponse.error("搜索书籍失败: " + e.getMessage());
-            }
-        }, taskExecutor);
-    }
-
-    /**
      * 获取书籍目录（增强版）
      *
      * @param directoryRequest 目录请求参数
      * @return 书籍目录
      */
     public CompletableFuture<FQNovelResponse<FQDirectoryResponse>> getBookDirectory(FQDirectoryRequest directoryRequest) {
-        return CompletableFuture.supplyAsync(() -> {
-            try {
-                if (ProcessLifecycle.isShuttingDown()) {
-                    return FQNovelResponse.error("服务正在退出中，请稍后重试");
-                }
+        if (ProcessLifecycle.isShuttingDown()) {
+            return CompletableFuture.completedFuture(FQNovelResponse.error("服务正在退出中，请稍后重试"));
+        }
 
-                if (directoryRequest == null) {
-                    return FQNovelResponse.error("目录请求不能为空");
-                }
+        String cacheKey = buildDirectoryCacheKey(directoryRequest);
+        if (cacheKey == null) {
+            return CompletableFuture.supplyAsync(() -> getBookDirectoryInternal(directoryRequest), taskExecutor);
+        }
 
-                FqVariable var = getDefaultFqVariable();
+        FQDirectoryResponse cached = directoryApiCache.getIfPresent(cacheKey);
+        if (cached != null) {
+            if (log.isDebugEnabled()) {
+                log.debug("目录缓存命中 - key: {}", cacheKey);
+            }
+            return CompletableFuture.completedFuture(FQNovelResponse.success(cached));
+        }
 
-                // 构建目录URL和参数
-                String url = fqApiUtils.getBaseUrl().replace("api5-normal-sinfonlineb", "api5-normal-sinfonlinec")
-                    + "/reading/bookapi/directory/all_items/v";
-                Map<String, String> params = fqApiUtils.buildDirectoryParams(var, directoryRequest);
-                String fullUrl = fqApiUtils.buildUrlWithParams(url, params);
+        CompletableFuture<FQNovelResponse<FQDirectoryResponse>> existing = inflightDirectory.get(cacheKey);
+        if (existing != null) {
+            return existing;
+        }
 
-                // 构建请求头
-                Map<String, String> headers = fqApiUtils.buildCommonHeaders();
+        CompletableFuture<FQNovelResponse<FQDirectoryResponse>> created = new CompletableFuture<>();
+        existing = inflightDirectory.putIfAbsent(cacheKey, created);
+        if (existing != null) {
+            return existing;
+        }
 
-                // 生成签名
-                Map<String, String> signedHeaders = fqEncryptServiceWorker.generateSignatureHeaders(fullUrl, headers).get();
-                if (signedHeaders == null || signedHeaders.isEmpty()) {
-                    log.error("签名生成失败，终止目录请求 - url: {}", fullUrl);
-                    return FQNovelResponse.error("签名生成失败");
-                }
-
-                // 发起API请求
-                HttpHeaders httpHeaders = new HttpHeaders();
-                headers.forEach(httpHeaders::set);
-                signedHeaders.forEach(httpHeaders::set);
-
-                HttpEntity<String> entity = new HttpEntity<>(httpHeaders);
-                upstreamRateLimiter.acquire();
-                ResponseEntity<byte[]> response = restTemplate.exchange(fullUrl, HttpMethod.GET, entity, byte[].class);
-
-                // 解压缩 GZIP 响应体
-                String responseBody = GzipUtils.decompressGzipResponse(response.getBody());
-
-                JsonNode rootNode = objectMapper.readTree(responseBody);
-                if (rootNode.has("code")) {
-                    int upstreamCode = rootNode.path("code").asInt(0);
-                    if (upstreamCode != 0) {
-                        String upstreamMessage = rootNode.path("message").asText("upstream error");
-                        if (log.isDebugEnabled()) {
-                            log.debug("目录接口上游失败原始响应: {}", responseBody.length() > 800 ? responseBody.substring(0, 800) + "..." : responseBody);
-                        }
-                        return FQNovelResponse.error(upstreamCode, upstreamMessage);
+        CompletableFuture.supplyAsync(() -> getBookDirectoryInternal(directoryRequest), taskExecutor)
+            .whenComplete((response, ex) -> {
+                try {
+                    if (ex != null) {
+                        created.completeExceptionally(ex);
+                        return;
                     }
+                    if (isDirectoryCacheable(response)) {
+                        directoryApiCache.put(cacheKey, response.getData());
+                    }
+                    created.complete(response);
+                } finally {
+                    inflightDirectory.remove(cacheKey, created);
                 }
+            });
 
-                JsonNode dataNode = rootNode.get("data");
-                if (dataNode == null || dataNode.isNull() || dataNode.isMissingNode()) {
-                    String upstreamMessage = rootNode.path("message").asText("upstream response missing data");
+        return created;
+    }
+
+    private FQNovelResponse<FQDirectoryResponse> getBookDirectoryInternal(FQDirectoryRequest directoryRequest) {
+        try {
+            if (ProcessLifecycle.isShuttingDown()) {
+                return FQNovelResponse.error("服务正在退出中，请稍后重试");
+            }
+
+            if (directoryRequest == null) {
+                return FQNovelResponse.error("目录请求不能为空");
+            }
+
+            FqVariable var = getDefaultFqVariable();
+
+            // 构建目录URL和参数
+            String url = fqApiUtils.getBaseUrl().replace("api5-normal-sinfonlineb", "api5-normal-sinfonlinec")
+                + "/reading/bookapi/directory/all_items/v";
+            Map<String, String> params = fqApiUtils.buildDirectoryParams(var, directoryRequest);
+            String fullUrl = fqApiUtils.buildUrlWithParams(url, params);
+
+            // 构建请求头
+            Map<String, String> headers = fqApiUtils.buildCommonHeaders();
+
+            // 生成签名
+            Map<String, String> signedHeaders = fqEncryptServiceWorker.generateSignatureHeadersSync(fullUrl, headers);
+            if (signedHeaders == null || signedHeaders.isEmpty()) {
+                log.error("签名生成失败，终止目录请求 - url: {}", fullUrl);
+                return FQNovelResponse.error("签名生成失败");
+            }
+
+            // 发起API请求
+            HttpHeaders httpHeaders = new HttpHeaders();
+            headers.forEach(httpHeaders::set);
+            signedHeaders.forEach(httpHeaders::set);
+
+            HttpEntity<String> entity = new HttpEntity<>(httpHeaders);
+            upstreamRateLimiter.acquire();
+            ResponseEntity<byte[]> response = restTemplate.exchange(fullUrl, HttpMethod.GET, entity, byte[].class);
+
+            // 解压缩 GZIP 响应体
+            String responseBody = GzipUtils.decompressGzipResponse(response.getBody());
+
+            JsonNode rootNode = objectMapper.readTree(responseBody);
+            if (rootNode.has("code")) {
+                int upstreamCode = rootNode.path("code").asInt(0);
+                if (upstreamCode != 0) {
+                    String upstreamMessage = rootNode.path("message").asText("upstream error");
                     if (log.isDebugEnabled()) {
-                        log.debug("目录接口上游缺少data原始响应: {}", responseBody.length() > 800 ? responseBody.substring(0, 800) + "..." : responseBody);
+                        log.debug("目录接口上游失败原始响应: {}", responseBody.length() > 800 ? responseBody.substring(0, 800) + "..." : responseBody);
                     }
-                    return FQNovelResponse.error("获取书籍目录失败: " + upstreamMessage);
+                    return FQNovelResponse.error(upstreamCode, upstreamMessage);
                 }
+            }
 
-                FQDirectoryResponse directoryResponse = objectMapper.treeToValue(dataNode, FQDirectoryResponse.class);
-                if (directoryResponse == null) {
-                    String upstreamMessage = rootNode.path("message").asText("upstream parse error");
-                    return FQNovelResponse.error("获取书籍目录失败: " + upstreamMessage);
+            JsonNode dataNode = rootNode.get("data");
+            if (dataNode == null || dataNode.isNull() || dataNode.isMissingNode()) {
+                String upstreamMessage = rootNode.path("message").asText("upstream response missing data");
+                if (log.isDebugEnabled()) {
+                    log.debug("目录接口上游缺少data原始响应: {}", responseBody.length() > 800 ? responseBody.substring(0, 800) + "..." : responseBody);
                 }
+                return FQNovelResponse.error("获取书籍目录失败: " + upstreamMessage);
+            }
 
+            FQDirectoryResponse directoryResponse = objectMapper.treeToValue(dataNode, FQDirectoryResponse.class);
+            if (directoryResponse == null) {
+                String upstreamMessage = rootNode.path("message").asText("upstream parse error");
+                return FQNovelResponse.error("获取书籍目录失败: " + upstreamMessage);
+            }
+
+            if (Boolean.TRUE.equals(directoryRequest.getMinimalResponse())) {
+                trimDirectoryResponse(directoryResponse);
+            } else {
                 // 增强章节列表数据
                 enhanceChapterList(directoryResponse);
-
-                return FQNovelResponse.success(directoryResponse);
-
-            } catch (Exception e) {
-                String bookId = directoryRequest != null ? directoryRequest.getBookId() : null;
-                log.error("获取书籍目录失败 - bookId: {}", bookId, e);
-                return FQNovelResponse.error("获取书籍目录失败: " + e.getMessage());
             }
-        }, taskExecutor);
+
+            return FQNovelResponse.success(directoryResponse);
+
+        } catch (Exception e) {
+            String bookId = directoryRequest != null ? directoryRequest.getBookId() : null;
+            log.error("获取书籍目录失败 - bookId: {}", bookId, e);
+            return FQNovelResponse.error("获取书籍目录失败: " + e.getMessage());
+        }
     }
 
     /**
@@ -749,9 +797,10 @@ public class FQSearchService {
             // 格式化首次通过时间
             if (item.getFirstPassTime() != null && item.getFirstPassTime() > 0) {
                 try {
-                    long timestamp = item.getFirstPassTime() * 1000L; // 转换为毫秒
-                    java.text.SimpleDateFormat sdf = new java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
-                    item.setFirstPassTimeStr(sdf.format(new java.util.Date(timestamp)));
+                    String timeStr = Instant.ofEpochSecond(item.getFirstPassTime())
+                        .atZone(SYSTEM_ZONE_ID)
+                        .format(CHAPTER_TIME_FORMATTER);
+                    item.setFirstPassTimeStr(timeStr);
                 } catch (Exception e) {
                     log.warn("格式化时间失败 - timestamp: {}", item.getFirstPassTime(), e);
                 }
@@ -768,6 +817,52 @@ public class FQSearchService {
         }
         
         log.debug("章节列表增强完成 - 总章节数: {}", totalChapters);
+    }
+
+    /**
+     * 目录响应裁剪：仅保留 Legado 目录必需字段
+     */
+    private void trimDirectoryResponse(FQDirectoryResponse directoryResponse) {
+        if (directoryResponse == null) {
+            return;
+        }
+
+        List<FQDirectoryResponse.ItemData> source = directoryResponse.getItemDataList();
+        List<FQDirectoryResponse.ItemData> minimal = new ArrayList<>();
+        if (source != null) {
+            minimal = new ArrayList<>(source.size());
+            for (FQDirectoryResponse.ItemData item : source) {
+                if (item == null) {
+                    continue;
+                }
+                String itemId = item.getItemId() != null ? item.getItemId().trim() : "";
+                if (itemId.isEmpty()) {
+                    continue;
+                }
+                FQDirectoryResponse.ItemData reduced = new FQDirectoryResponse.ItemData();
+                reduced.setItemId(itemId);
+                String title = item.getTitle() != null ? item.getTitle().trim() : "";
+                reduced.setTitle(title);
+                minimal.add(reduced);
+            }
+        }
+
+        directoryResponse.setItemDataList(minimal);
+        Integer upstreamSerialCount = directoryResponse.getSerialCount();
+        int finalSerialCount = minimal.size();
+        if (upstreamSerialCount != null && upstreamSerialCount > finalSerialCount) {
+            finalSerialCount = upstreamSerialCount;
+        }
+        directoryResponse.setSerialCount(finalSerialCount);
+        directoryResponse.setBookInfo(null);
+        directoryResponse.setCatalogData(null);
+        directoryResponse.setFieldCacheStatus(null);
+        directoryResponse.setBanRecover(null);
+        directoryResponse.setAdditionalItemDataList(null);
+
+        if (log.isDebugEnabled()) {
+            log.debug("目录响应裁剪完成 - 章节数: {}", minimal.size());
+        }
     }
 
     /**
@@ -943,131 +1038,30 @@ public class FQSearchService {
     }
 
     /**
-     * 解析书籍项目，字段映射按实际API返回（完整映射）
+     * 解析书籍项目（精简映射，仅保留当前接口输出会用到的字段）
      */
     private static FQSearchResponse.BookItem parseBookItem(JsonNode bookNode) {
         FQSearchResponse.BookItem book = new FQSearchResponse.BookItem();
+        if (bookNode == null || bookNode.isMissingNode() || bookNode.isNull()) {
+            return book;
+        }
 
-        // ============ 基础信息 ============
         book.setBookId(bookNode.path("book_id").asText(""));
         book.setBookName(bookNode.path("book_name").asText(""));
-        book.setBookShortName(bookNode.path("book_short_name").asText(""));
         book.setAuthor(bookNode.path("author").asText(""));
-        book.setAuthorId(bookNode.path("author_id").asText(""));
-        
-        // 作者信息
-        JsonNode authorInfoNode = bookNode.path("author_info");
-        if (authorInfoNode != null && !authorInfoNode.isMissingNode() && authorInfoNode.isObject()) {
-            Map<String, Object> authorInfoMap = new HashMap<>();
-            authorInfoNode.fields().forEachRemaining(entry -> {
-                authorInfoMap.put(entry.getKey(), entry.getValue());
-            });
-            book.setAuthorInfo(authorInfoMap);
-        }
-        
-        book.setDescription(bookNode.path("abstract").asText(""));
-        book.setBookAbstractV2(bookNode.path("book_abstract_v2").asText(""));
-        book.setCoverUrl(bookNode.path("thumb_url").asText(""));
-        book.setDetailPageThumbUrl(bookNode.path("detail_page_thumb_url").asText(""));
-        book.setExpandThumbUrl(bookNode.path("expand_thumb_url").asText(""));
-        book.setHorizThumbUrl(bookNode.path("horiz_thumb_url").asText(""));
-        book.setStatus(bookNode.path("status").asInt(0));
-        book.setCreationStatus(bookNode.path("creation_status").asText(""));
-        book.setUpdateStatus(bookNode.path("update_status").asText(""));
-        
-        // ============ 章节信息 ============
-        book.setWordCount(bookNode.path("word_number").asLong(0));
-        
-        // 尝试从不同字段获取章节总数
-        if (bookNode.has("serial_count")) {
-            book.setTotalChapters(bookNode.path("serial_count").asInt(0));
-        } else if (bookNode.has("content_chapter_number")) {
-            book.setTotalChapters(bookNode.path("content_chapter_number").asInt(0));
-        }
-        
-        book.setFirstChapterTitle(bookNode.path("first_chapter_title").asText(""));
-        book.setFirstChapterItemId(bookNode.path("first_chapter_item_id").asText(""));
+        book.setDescription(firstNonBlank(
+            bookNode.path("abstract").asText(""),
+            bookNode.path("book_abstract_v2").asText("")
+        ));
+        book.setCoverUrl(firstNonBlank(
+            bookNode.path("thumb_url").asText(""),
+            bookNode.path("detail_page_thumb_url").asText("")
+        ));
         book.setLastChapterTitle(bookNode.path("last_chapter_title").asText(""));
-        book.setLastChapterItemId(bookNode.path("last_chapter_item_id").asText(""));
-        book.setUpdateTime(bookNode.path("last_chapter_update_time").asLong(0));
-        book.setLastChapterUpdateTime(bookNode.path("last_chapter_update_time").asText(""));
-        
-        // ============ 分类信息 ============
         book.setCategory(bookNode.path("category").asText(""));
-        book.setCategoryV2(bookNode.path("category_v2").asText(""));
-        book.setCompleteCategory(bookNode.path("complete_category").asText(""));
-        book.setGenre(bookNode.path("genre").asText(""));
-        book.setSubGenre(bookNode.path("sub_genre").asText(""));
-        book.setGender(bookNode.path("gender").asText(""));
-        
-        // 标签兼容逗号分隔字符串和数组
-        JsonNode tagsNode = bookNode.path("tags");
-        if (tagsNode.isArray()) {
-            List<String> tags = new ArrayList<>();
-            for (JsonNode tag : tagsNode) {
-                tags.add(tag.asText());
-            }
-            book.setTags(tags);
-            book.setTagsStr(String.join(",", tags));
-        } else {
-            String tagsStr = tagsNode.asText("");
-            if (!tagsStr.isEmpty()) {
-                book.setTags(Arrays.asList(tagsStr.split(",")));
-                book.setTagsStr(tagsStr);
-            }
-        }
-        
-        // ============ 统计数据 ============
-        book.setRating(bookNode.path("score").asDouble(0.0));
-        book.setReadCount(bookNode.path("read_count").asLong(0L));
-        book.setReadCntText(bookNode.path("read_cnt_text").asText(""));
-        book.setAddBookshelfCount(bookNode.path("add_bookshelf_count").asLong(0L));
-        book.setReaderUv14day(bookNode.path("reader_uv_14day").asLong(0L));
-        book.setListenCount(bookNode.path("listen_count").asLong(0L));
-        book.setFinishRate10(bookNode.path("finish_rate_10").asDouble(0.0));
-        
-        // ============ 价格与销售 ============
-        book.setTotalPrice(bookNode.path("total_price").asLong(0L));
-        book.setBasePrice(bookNode.path("base_price").asLong(0L));
-        book.setDiscountPrice(bookNode.path("discount_price").asLong(0L));
-        book.setFreeStatus(bookNode.path("free_status").asText(""));
-        book.setVipBook(bookNode.path("vip_book").asText(""));
-        
-        // ============ 授权与版权 ============
-        book.setExclusive(bookNode.path("exclusive").asText(""));
-        book.setRealExclusive(bookNode.path("real_exclusive").asText(""));
-        book.setCopyrightInfo(bookNode.path("copyright_info").asText(""));
-        
-        // ============ 显示与颜色 ============
-        book.setColorDominate(bookNode.path("color_dominate").asText(""));
-        book.setColorMostPopular(bookNode.path("color_most_popular").asText(""));
-        book.setThumbUri(bookNode.path("thumb_uri").asText(""));
-        
-	        // ============ 时间信息 ============
-	        book.setCreateTime(bookNode.path("create_time").asLong(0L));
-	        book.setPublishedDate(bookNode.path("published_date").asText(""));
-	        book.setLastPublishTime(bookNode.path("last_publish_time").asLong(0L));
-	        book.setFirstOnlineTime(bookNode.path("first_online_time").asLong(0L));
-        
-        // ============ 书籍类型 ============
-        book.setBookType(bookNode.path("book_type").asText(""));
-        book.setIsNew(boolFromNode(bookNode.path("is_new")));
-        book.setIsEbook(boolFromNode(bookNode.path("is_ebook")));
-        book.setLengthType(bookNode.path("length_type").asText(""));
-        
-        // ============ 其他信息 ============
-        book.setBookSearchVisible(bookNode.path("book_search_visible").asText(""));
-        book.setPress(bookNode.path("press").asText(""));
-        book.setPublisher(bookNode.path("publisher").asText(""));
-        book.setIsbn(bookNode.path("isbn").asText(""));
-        book.setSource(bookNode.path("source").asText(""));
-        book.setPlatform(bookNode.path("platform").asText(""));
-        book.setFlightFlag(bookNode.path("flight_flag").asText(""));
-	        book.setRecommendCountLevel(bookNode.path("recommend_count_level").asText(""));
-	        book.setDataRate(bookNode.path("data_rate").asDouble(0.0));
-	        book.setRiskRate(bookNode.path("risk_rate").asDouble(0.0));
-	        
-	        return book;
-	    }
+        book.setWordCount(bookNode.path("word_number").asLong(0L));
+
+        return book;
+    }
 
 }

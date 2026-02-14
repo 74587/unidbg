@@ -42,6 +42,13 @@ fq:
     retry-max-delay-ms: 10000
     upstream-connect-timeout-ms: 15000
     upstream-read-timeout-ms: 30000
+    chapter-cache-max-entries: 2000
+    chapter-cache-ttl-ms: 1800000
+    chapter-include-raw-content: false
+    search-cache-max-entries: 256
+    search-cache-ttl-ms: 45000
+    api-directory-cache-max-entries: 512
+    api-directory-cache-ttl-ms: 600000
     auto-restart-enabled: true
     auto-restart-error-threshold: 5
     auto-restart-window-ms: 300000

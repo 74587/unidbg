@@ -8,6 +8,7 @@ import com.anjia.unidbgserver.dto.FqVariable;
 import com.anjia.unidbgserver.utils.FQApiUtils;
 import com.anjia.unidbgserver.utils.GzipUtils;
 import com.anjia.unidbgserver.utils.CookieUtils;
+import com.anjia.unidbgserver.utils.SearchIdExtractor;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
@@ -24,7 +25,6 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
-import java.util.LinkedHashMap;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.locks.ReentrantLock;
@@ -51,24 +51,10 @@ public class FQDeviceRotationService {
     private final ReentrantLock lock = new ReentrantLock();
     private volatile long lastRotateAtMs = 0L;
     private volatile String currentProfileName = "";
-    private volatile String lastRotateReason = "";
-    private volatile String lastRotateProfileName = "";
     private final AtomicInteger poolIndex = new AtomicInteger(0);
-
-    public long getLastRotateAtMs() {
-        return lastRotateAtMs;
-    }
 
     public String getCurrentProfileName() {
         return currentProfileName;
-    }
-
-    public String getLastRotateReason() {
-        return lastRotateReason;
-    }
-
-    public String getLastRotateProfileName() {
-        return lastRotateProfileName;
     }
 
     @PostConstruct
@@ -179,9 +165,9 @@ public class FQDeviceRotationService {
             Map<String, String> params = fqApiUtils.buildSearchParams(var, searchRequest);
             String fullUrl = fqApiUtils.buildUrlWithParams(url, params);
 
-            Map<String, String> headers = buildSearchHeadersForProbe();
+            Map<String, String> headers = fqApiUtils.buildSearchHeaders();
             upstreamRateLimiter.acquire();
-            Map<String, String> signedHeaders = fqEncryptServiceWorker.generateSignatureHeaders(fullUrl, headers).get();
+            Map<String, String> signedHeaders = fqEncryptServiceWorker.generateSignatureHeadersSync(fullUrl, headers);
             if (signedHeaders == null || signedHeaders.isEmpty()) {
                 return false;
             }
@@ -206,7 +192,7 @@ public class FQDeviceRotationService {
             if (code != 0) {
                 return false;
             }
-            String searchId = extractSearchIdDeep(root);
+            String searchId = SearchIdExtractor.deepFind(root);
             if (searchId != null && !searchId.isEmpty()) {
                 return true;
             }
@@ -220,54 +206,6 @@ public class FQDeviceRotationService {
         } catch (Exception e) {
             return false;
         }
-    }
-
-    private Map<String, String> buildSearchHeadersForProbe() {
-        Map<String, String> base = fqApiUtils.buildCommonHeaders();
-        if (base.containsKey("authorization")) {
-            return base;
-        }
-        Map<String, String> ordered = new LinkedHashMap<>();
-        for (Map.Entry<String, String> entry : base.entrySet()) {
-            ordered.put(entry.getKey(), entry.getValue());
-            if ("x-reading-request".equalsIgnoreCase(entry.getKey())) {
-                ordered.put("authorization", "Bearer");
-            }
-        }
-        if (!ordered.containsKey("authorization")) {
-            ordered.put("authorization", "Bearer");
-        }
-        return ordered;
-    }
-
-    private String extractSearchIdDeep(JsonNode root) {
-        if (root == null) {
-            return "";
-        }
-        java.util.ArrayDeque<JsonNode> stack = new java.util.ArrayDeque<>();
-        stack.push(root);
-        while (!stack.isEmpty()) {
-            JsonNode node = stack.pop();
-            if (node == null || node.isNull() || node.isMissingNode()) {
-                continue;
-            }
-            if (node.isObject()) {
-                String direct = node.path("search_id").asText("");
-                if (direct != null && !direct.trim().isEmpty()) {
-                    return direct.trim();
-                }
-                String alt = node.path("search_id_str").asText("");
-                if (alt != null && !alt.trim().isEmpty()) {
-                    return alt.trim();
-                }
-                node.fields().forEachRemaining(e -> stack.push(e.getValue()));
-            } else if (node.isArray()) {
-                for (JsonNode child : node) {
-                    stack.push(child);
-                }
-            }
-        }
-        return "";
     }
 
     /**
@@ -328,8 +266,10 @@ public class FQDeviceRotationService {
             return null;
         }
 
-        String currentDeviceId = fqApiProperties.getDevice() != null ? fqApiProperties.getDevice().getDeviceId() : null;
-        String currentInstallId = fqApiProperties.getDevice() != null ? fqApiProperties.getDevice().getInstallId() : null;
+        FQApiProperties.RuntimeProfile currentRuntime = fqApiProperties.getRuntimeProfile();
+        FQApiProperties.Device currentDevice = currentRuntime != null ? currentRuntime.getDevice() : null;
+        String currentDeviceId = currentDevice != null ? currentDevice.getDeviceId() : null;
+        String currentInstallId = currentDevice != null ? currentDevice.getInstallId() : null;
 
         FQApiProperties.DeviceProfile profile = null;
         int idx = -1;
@@ -372,9 +312,6 @@ public class FQDeviceRotationService {
         String installId = profile.getDevice() != null ? profile.getDevice().getInstallId() : null;
         log.warn("检测到异常，已切换设备：序号={}, 设备名={}, 设备ID={}, 安装ID={}, 原因={}",
             idx, name, deviceId, installId, reason);
-
-        lastRotateReason = reason != null ? reason : "";
-        lastRotateProfileName = name != null ? name : "";
 
         return toDeviceInfo(profile);
     }
@@ -453,19 +390,18 @@ public class FQDeviceRotationService {
         copyIfPresent(src.getVersionName(), newDevice::setVersionName);
         copyIfPresent(src.getOsVersion(), newDevice::setOsVersion);
         copyIfPresent(src.getOsApi(), newDevice::setOsApi);
-        
-        // 原子替换：先更新 UA 和 Cookie，最后一次性替换 Device 对象
-        // 这样可以最大程度减少"半旧半新"的时间窗口
-        if (profile.getUserAgent() != null) {
-            fqApiProperties.setUserAgent(profile.getUserAgent());
-        }
-        String cookie = profile.getCookie() != null ? profile.getCookie() : fqApiProperties.getCookie();
-        if (cookie != null) {
-            fqApiProperties.setCookie(CookieUtils.normalizeInstallId(cookie, newDevice.getInstallId()));
-        }
-        
-        // 最后一次性替换 Device 对象（相比逐字段修改，这是一个原子操作）
-        fqApiProperties.setDevice(newDevice);
+
+        FQApiProperties.RuntimeProfile currentRuntime = fqApiProperties.getRuntimeProfile();
+        String fallbackUserAgent = currentRuntime != null ? currentRuntime.getUserAgent() : null;
+        String fallbackCookie = currentRuntime != null ? currentRuntime.getCookie() : null;
+
+        String userAgent = profile.getUserAgent() != null && !profile.getUserAgent().trim().isEmpty()
+            ? profile.getUserAgent().trim() : fallbackUserAgent;
+        String cookie = profile.getCookie() != null && !profile.getCookie().trim().isEmpty()
+            ? profile.getCookie().trim() : fallbackCookie;
+        String normalizedCookie = CookieUtils.normalizeInstallId(cookie, newDevice.getInstallId());
+
+        fqApiProperties.applyRuntimeProfile(userAgent, normalizedCookie, newDevice);
     }
 
     private void copyIfPresent(String value, java.util.function.Consumer<String> setter) {
