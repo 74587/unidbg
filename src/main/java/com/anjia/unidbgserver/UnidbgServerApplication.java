@@ -5,6 +5,7 @@ import com.anjia.unidbgserver.utils.ConsoleNoiseFilter;
 import org.apache.commons.lang3.StringUtils;
 import org.springframework.boot.Banner;
 import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.jdbc.DataSourceAutoConfiguration;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.boot.context.properties.ConfigurationPropertiesScan;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
@@ -15,7 +16,10 @@ import java.net.InetAddress;
 @Slf4j
 @ConfigurationPropertiesScan
 @EnableConfigurationProperties
-@SpringBootApplication(scanBasePackages = {"com.anjia"})
+@SpringBootApplication(
+    scanBasePackages = {"com.anjia"},
+    exclude = {DataSourceAutoConfiguration.class}
+)
 public class UnidbgServerApplication {
 
     private static final String SERVER_PORT = "server.port";

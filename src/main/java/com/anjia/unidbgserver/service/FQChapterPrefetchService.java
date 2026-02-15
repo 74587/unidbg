@@ -7,6 +7,7 @@ import com.anjia.unidbgserver.utils.LocalCacheFactory;
 import com.github.benmanes.caffeine.cache.Cache;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Service;
 
 import javax.annotation.PostConstruct;
@@ -15,7 +16,6 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ForkJoinPool;
 import java.util.concurrent.Executor;
-import java.security.MessageDigest;
 
 /**
  * 单章接口的抗风控优化：
@@ -33,15 +33,11 @@ public class FQChapterPrefetchService {
      */
     private static final int MIN_BASE64_ENCRYPTED_LENGTH = 24;
     
-    /**
-     * Token hash 使用的字节数（16 bytes = 32 hex chars，碰撞概率 2^-128）
-     */
-    private static final int TOKEN_HASH_BYTES = 16;
-
     private final FQDownloadProperties downloadProperties;
     private final FQNovelService fqNovelService;
     private final FQSearchService fqSearchService;
     private final FQRegisterKeyService registerKeyService;
+    private final ObjectProvider<PgChapterCacheService> pgChapterCacheServiceProvider;
 
     @javax.annotation.Resource(name = "fqPrefetchExecutor")
     private Executor prefetchExecutor;
@@ -80,18 +76,25 @@ public class FQChapterPrefetchService {
         final String chapterId = rawChapterId.trim();
 
         final String token = request.getToken();
-        final String tokenScope = tokenScope(token);
 
-        FQNovelChapterInfo cached = getCachedChapter(bookId, chapterId, tokenScope);
+        FQNovelChapterInfo cached = getCachedChapter(bookId, chapterId);
         if (cached != null) {
+            // 命中缓存直接返回，不走上游请求，也不会触发上游限流。
             return CompletableFuture.completedFuture(FQNovelResponse.success(cached));
         }
 
+        // 主缓存：PostgreSQL（命中后回填本地 Caffeine）
+        FQNovelChapterInfo persisted = getPersistedChapter(bookId, chapterId);
+        if (persisted != null) {
+            // 命中 PostgreSQL 主缓存直接返回，不走上游请求，也不会触发上游限流。
+            return CompletableFuture.completedFuture(FQNovelResponse.success(persisted));
+        }
+
         // 预取：优先在目录中定位章节顺序，拉取后缓存（非阻塞链式调用，避免线程池互等死锁）
-        return prefetchAndCacheDedup(bookId, chapterId, token, tokenScope)
+        return prefetchAndCacheDedup(bookId, chapterId, token)
             .exceptionally(ex -> null) // 预取失败不影响单章兜底
             .thenCompose(ignored -> {
-                FQNovelChapterInfo afterPrefetch = getCachedChapter(bookId, chapterId, tokenScope);
+                FQNovelChapterInfo afterPrefetch = getCachedChapter(bookId, chapterId);
                 if (afterPrefetch != null) {
                     return CompletableFuture.completedFuture(FQNovelResponse.success(afterPrefetch));
                 }
@@ -110,7 +113,7 @@ public class FQChapterPrefetchService {
                     ItemContent itemContent = dataMap.getOrDefault(chapterId, dataMap.values().iterator().next());
                     try {
                         FQNovelChapterInfo info = buildChapterInfo(bookId, chapterId, itemContent);
-                        chapterCache.put(cacheKey(bookId, chapterId, tokenScope), info);
+                        cacheChapter(bookId, chapterId, info);
                         return FQNovelResponse.success(info);
                     } catch (Exception e) {
                         throw new RuntimeException(e);
@@ -130,8 +133,8 @@ public class FQChapterPrefetchService {
             });
     }
 
-    private CompletableFuture<Void> prefetchAndCacheDedup(String bookId, String chapterId, String token, String tokenScope) {
-        final String key = tokenScope + ":" + computePrefetchKeyFast(bookId, chapterId);
+    private CompletableFuture<Void> prefetchAndCacheDedup(String bookId, String chapterId, String token) {
+        final String key = computePrefetchKeyFast(bookId, chapterId);
 
         CompletableFuture<Void> existing = inflightPrefetch.get(key);
         if (existing != null) {
@@ -144,7 +147,7 @@ public class FQChapterPrefetchService {
             return existing;
         }
 
-        doPrefetchAndCacheAsync(bookId, chapterId, token, tokenScope).whenComplete((v, ex) -> {
+        doPrefetchAndCacheAsync(bookId, chapterId, token).whenComplete((v, ex) -> {
             try {
                 if (ex != null) {
                     log.debug("预取失败（忽略） - bookId: {}, chapterId: {}", bookId, chapterId, ex);
@@ -174,7 +177,7 @@ public class FQChapterPrefetchService {
         return bookId + ":bucket:" + bucketStart + ":" + size;
     }
 
-    private CompletableFuture<Void> doPrefetchAndCacheAsync(String bookId, String chapterId, String token, String tokenScope) {
+    private CompletableFuture<Void> doPrefetchAndCacheAsync(String bookId, String chapterId, String token) {
         Executor exec = prefetchExecutor != null ? prefetchExecutor : ForkJoinPool.commonPool();
         return getDirectoryIndexAsync(bookId).thenCompose(directoryIndex -> {
             List<String> itemIds = directoryIndex != null ? directoryIndex.getItemIds() : Collections.emptyList();
@@ -207,7 +210,7 @@ public class FQChapterPrefetchService {
                     }
                     try {
                         FQNovelChapterInfo info = buildChapterInfo(bookId, itemId, content);
-                        chapterCache.put(cacheKey(bookId, itemId, tokenScope), info);
+                        cacheChapter(bookId, itemId, info);
                     } catch (Exception e) {
                         log.debug("预取章节处理失败 - bookId: {}, itemId: {}", bookId, itemId, e);
                     }
@@ -304,9 +307,62 @@ public class FQChapterPrefetchService {
         }
     }
 
-    private FQNovelChapterInfo getCachedChapter(String bookId, String chapterId, String tokenScope) {
-        String key = cacheKey(bookId, chapterId, tokenScope);
-        return chapterCache.getIfPresent(key);
+    private FQNovelChapterInfo getCachedChapter(String bookId, String chapterId) {
+        String key = cacheKey(bookId, chapterId);
+        FQNovelChapterInfo cached = chapterCache.getIfPresent(key);
+        if (!isChapterCacheable(bookId, chapterId, cached)) {
+            if (cached != null) {
+                chapterCache.invalidate(key);
+            }
+            return null;
+        }
+        return cached;
+    }
+
+    private FQNovelChapterInfo getPersistedChapter(String bookId, String chapterId) {
+        PgChapterCacheService pgCacheService = pgChapterCacheServiceProvider.getIfAvailable();
+        if (pgCacheService == null) {
+            return null;
+        }
+
+        FQNovelChapterInfo persisted = pgCacheService.getChapter(bookId, chapterId);
+        if (persisted != null) {
+            chapterCache.put(cacheKey(bookId, chapterId), persisted);
+        }
+        return persisted;
+    }
+
+    private void cacheChapter(String bookId, String chapterId, FQNovelChapterInfo chapterInfo) {
+        if (!isChapterCacheable(bookId, chapterId, chapterInfo)) {
+            return;
+        }
+
+        chapterCache.put(cacheKey(bookId, chapterId), chapterInfo);
+
+        PgChapterCacheService pgCacheService = pgChapterCacheServiceProvider.getIfAvailable();
+        if (pgCacheService != null) {
+            pgCacheService.saveChapterIfValid(bookId, chapterId, chapterInfo);
+        }
+    }
+
+    private static boolean isChapterCacheable(String bookId, String chapterId, FQNovelChapterInfo chapterInfo) {
+        if (!hasText(bookId) || !hasText(chapterId) || chapterInfo == null) {
+            return false;
+        }
+        if (!hasText(chapterInfo.getTitle()) || !hasText(chapterInfo.getTxtContent())) {
+            return false;
+        }
+        if (!hasText(chapterInfo.getBookId()) || !bookId.trim().equals(chapterInfo.getBookId().trim())) {
+            return false;
+        }
+        if (!hasText(chapterInfo.getChapterId()) || !chapterId.trim().equals(chapterInfo.getChapterId().trim())) {
+            return false;
+        }
+        return true;
+    }
+
+    private static boolean hasText(String value) {
+        return value != null && !value.trim().isEmpty();
     }
 
     private FQNovelChapterInfo buildChapterInfo(String bookId, String chapterId, ItemContent itemContent) throws Exception {
@@ -338,36 +394,8 @@ public class FQChapterPrefetchService {
         );
     }
 
-    private static String tokenScope(String token) {
-        if (token == null) {
-            return "t0";
-        }
-        String trimmed = token.trim();
-        if (trimmed.isEmpty()) {
-            return "t0";
-        }
-        return "t" + shortSha256Hex(trimmed);
-    }
-
-    private static String cacheKey(String bookId, String chapterId, String tokenScope) {
-        return tokenScope + ":" + bookId + ":" + chapterId;
-    }
-
-    private static String shortSha256Hex(String value) {
-        try {
-            MessageDigest digest = MessageDigest.getInstance("SHA-256");
-            byte[] hash = digest.digest(value.getBytes(java.nio.charset.StandardCharsets.UTF_8));
-            int bytes = Math.min(TOKEN_HASH_BYTES, hash.length);
-            // 取前 N bytes -> 2N hex chars，足够区分且避免暴露完整 token
-            StringBuilder sb = new StringBuilder(bytes * 2);
-            for (int i = 0; i < bytes; i++) {
-                sb.append(String.format(Locale.ROOT, "%02x", hash[i]));
-            }
-            return sb.toString();
-        } catch (Exception e) {
-            // 兜底：极少发生，退化为“有 token”但不区分不同 token
-            return "1";
-        }
+    private static String cacheKey(String bookId, String chapterId) {
+        return bookId + ":" + chapterId;
     }
 
 
