@@ -99,20 +99,18 @@ public class FQRegisterKeyService {
             return currentRegisterKey;
         }
 
-        // keyver不匹配，但不应该刷新（因为刷新只会获取最新的keyver）
-        // 记录警告并返回当前key，让调用方处理版本不匹配的情况
-        Object currentKeyver = (currentRegisterKey != null && currentRegisterKey.getData() != null)
-            ? currentRegisterKey.getData().getKeyver() : "无";
-        log.warn("registerkey 版本不匹配 - 当前keyver={}，需要keyver={}。无法获取历史keyver，将使用当前key尝试解密",
-                currentKeyver, normalizedKeyver);
-        
-        // 如果当前key有效，返回它（即使版本不匹配）
-        if (isCurrentRegisterKeyValid()) {
-            return currentRegisterKey;
+        // 不再盲目使用“当前 key”尝试解密：先刷新一次，仍不匹配则明确失败。
+        FqRegisterKeyResponse refreshed = refreshRegisterKey();
+        if (refreshed != null
+            && refreshed.getData() != null
+            && refreshed.getData().getKeyver() == normalizedKeyver.longValue()) {
+            return refreshed;
         }
-        
-        // 如果当前key无效，刷新一个新的
-        return refreshRegisterKey();
+
+        Object currentKeyver = (refreshed != null && refreshed.getData() != null)
+            ? refreshed.getData().getKeyver() : "无";
+        throw new IllegalStateException("registerkey 版本不匹配 - 当前keyver=" + currentKeyver
+            + "，需要keyver=" + normalizedKeyver + "。已刷新仍不匹配，终止解密");
     }
 
     private Long normalizeKeyver(Long keyver) {
@@ -238,15 +236,14 @@ public class FQRegisterKeyService {
     }
 
     /**
-     * 清除缓存
+     * 仅使当前默认key失效，保留历史 keyver 缓存（避免设备切换后丢失可复用 key）。
      */
-    public void clearCache() {
+    public void invalidateCurrentKey() {
         synchronized (this) {
-            cachedRegisterKeys.clear();
             currentRegisterKey = null;
             currentRegisterKeyExpiresAtMs = 0L;
         }
-        log.info("registerkey缓存已清除");
+        log.info("registerkey当前键已失效（保留历史keyver缓存）");
     }
 
     /**

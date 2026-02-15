@@ -4,16 +4,11 @@ import lombok.Data;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
 /**
- * PostgreSQL 章节缓存配置（默认关闭）。
+ * PostgreSQL 章节缓存配置。
  */
 @Data
 @ConfigurationProperties(prefix = "fq.cache.postgres")
 public class FQCachePostgresProperties {
-
-    /**
-     * 是否启用 PostgreSQL 章节缓存。
-     */
-    private boolean enabled = false;
 
     /**
      * 数据库连接地址（DB_URL）：

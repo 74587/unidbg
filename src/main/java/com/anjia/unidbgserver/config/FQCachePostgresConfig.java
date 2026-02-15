@@ -4,7 +4,7 @@ import com.zaxxer.hikari.HikariConfig;
 import com.zaxxer.hikari.HikariDataSource;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.context.annotation.Conditional;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -16,12 +16,12 @@ import java.io.UnsupportedEncodingException;
 import java.nio.charset.StandardCharsets;
 
 /**
- * PostgreSQL 章节缓存数据源配置（显式开启才生效）。
+ * PostgreSQL 章节缓存数据源配置（配置 DB_URL 后自动生效）。
  */
 @Slf4j
 @Configuration
 @RequiredArgsConstructor
-@ConditionalOnProperty(prefix = "fq.cache.postgres", name = "enabled", havingValue = "true")
+@Conditional(DbUrlPresentCondition.class)
 public class FQCachePostgresConfig {
 
     private final FQCachePostgresProperties properties;
@@ -30,7 +30,7 @@ public class FQCachePostgresConfig {
     public DataSource pgCacheDataSource() {
         String rawUrl = trimToNull(properties.getUrl());
         if (rawUrl == null) {
-            throw new IllegalStateException("已启用 fq.cache.postgres.enabled=true，但未配置 DB_URL");
+            throw new IllegalStateException("未配置 DB_URL");
         }
 
         ResolvedConnection resolved = resolveConnection(rawUrl);

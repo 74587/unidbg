@@ -248,7 +248,7 @@ public class FQDeviceRotationService {
 
             lastRotateAtMs = now;
             try {
-                registerKeyService.clearCache();
+                registerKeyService.invalidateCurrentKey();
                 registerKeyService.refreshRegisterKey();
             } catch (Exception e) {
                 log.warn("设备旋转后刷新 registerkey 失败（可忽略，下次请求会再刷新）", e);

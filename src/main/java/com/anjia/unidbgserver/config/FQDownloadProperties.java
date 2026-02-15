@@ -49,7 +49,7 @@ public class FQDownloadProperties {
     /**
      * 章节内容缓存最大条数
      */
-    private int chapterCacheMaxEntries = 100;
+    private int chapterCacheMaxEntries = 2000;
 
     /**
      * 章节缓存 TTL（ms）

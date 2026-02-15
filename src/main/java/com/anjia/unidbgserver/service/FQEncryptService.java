@@ -259,7 +259,6 @@ public class FQEncryptService {
     private boolean isSensitiveHeaderName(String lowerCaseName) {
         return lowerCaseName.startsWith("authorization")
             || lowerCaseName.startsWith("cookie")
-            || lowerCaseName.startsWith("x-tt-token")
             || lowerCaseName.startsWith("x-tt-argon")
             || lowerCaseName.startsWith("x-tt-uuid");
     }

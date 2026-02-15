@@ -11,6 +11,7 @@ import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Service;
 
 import javax.annotation.PostConstruct;
+import javax.crypto.BadPaddingException;
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
@@ -75,8 +76,6 @@ public class FQChapterPrefetchService {
         }
         final String chapterId = rawChapterId.trim();
 
-        final String token = request.getToken();
-
         FQNovelChapterInfo cached = getCachedChapter(bookId, chapterId);
         if (cached != null) {
             // 命中缓存直接返回，不走上游请求，也不会触发上游限流。
@@ -91,7 +90,7 @@ public class FQChapterPrefetchService {
         }
 
         // 预取：优先在目录中定位章节顺序，拉取后缓存（非阻塞链式调用，避免线程池互等死锁）
-        return prefetchAndCacheDedup(bookId, chapterId, token)
+        return prefetchAndCacheDedup(bookId, chapterId)
             .exceptionally(ex -> null) // 预取失败不影响单章兜底
             .thenCompose(ignored -> {
                 FQNovelChapterInfo afterPrefetch = getCachedChapter(bookId, chapterId);
@@ -100,7 +99,7 @@ public class FQChapterPrefetchService {
                 }
 
                 // 兜底：仍未命中则只取单章
-                return fqNovelService.batchFull(chapterId, bookId, true, token).thenApply(single -> {
+                return fqNovelService.batchFull(chapterId, bookId, true).thenApply(single -> {
                     if (single.getCode() != 0 || single.getData() == null) {
                         return FQNovelResponse.<FQNovelChapterInfo>error("获取章节内容失败: " + single.getMessage());
                     }
@@ -133,7 +132,7 @@ public class FQChapterPrefetchService {
             });
     }
 
-    private CompletableFuture<Void> prefetchAndCacheDedup(String bookId, String chapterId, String token) {
+    private CompletableFuture<Void> prefetchAndCacheDedup(String bookId, String chapterId) {
         final String key = computePrefetchKeyFast(bookId, chapterId);
 
         CompletableFuture<Void> existing = inflightPrefetch.get(key);
@@ -147,7 +146,7 @@ public class FQChapterPrefetchService {
             return existing;
         }
 
-        doPrefetchAndCacheAsync(bookId, chapterId, token).whenComplete((v, ex) -> {
+        doPrefetchAndCacheAsync(bookId, chapterId).whenComplete((v, ex) -> {
             try {
                 if (ex != null) {
                     log.debug("预取失败（忽略） - bookId: {}, chapterId: {}", bookId, chapterId, ex);
@@ -177,7 +176,7 @@ public class FQChapterPrefetchService {
         return bookId + ":bucket:" + bucketStart + ":" + size;
     }
 
-    private CompletableFuture<Void> doPrefetchAndCacheAsync(String bookId, String chapterId, String token) {
+    private CompletableFuture<Void> doPrefetchAndCacheAsync(String bookId, String chapterId) {
         Executor exec = prefetchExecutor != null ? prefetchExecutor : ForkJoinPool.commonPool();
         return getDirectoryIndexAsync(bookId).thenCompose(directoryIndex -> {
             List<String> itemIds = directoryIndex != null ? directoryIndex.getItemIds() : Collections.emptyList();
@@ -197,7 +196,7 @@ public class FQChapterPrefetchService {
 
             // 拉取并解密（处理放在 prefetchExecutor 上，避免占用业务线程池）
             String joined = String.join(",", batchIds);
-            return fqNovelService.batchFull(joined, bookId, true, token).thenAcceptAsync(batch -> {
+            return fqNovelService.batchFull(joined, bookId, true).thenAcceptAsync(batch -> {
                 if (batch == null || batch.getCode() != 0 || batch.getData() == null || batch.getData().getData() == null) {
                     return;
                 }
@@ -381,10 +380,8 @@ public class FQChapterPrefetchService {
             throw new IllegalArgumentException("章节内容为空/过短");
         }
 
-        String decryptedContent;
         Long contentKeyver = itemContent.getKeyVersion();
-        String key = registerKeyService.getDecryptionKey(contentKeyver);
-        decryptedContent = FqCrypto.decryptAndDecompressContent(encrypted, key);
+        String decryptedContent = decryptChapterContentWithRetry(bookId, chapterId, encrypted, contentKeyver);
         return ChapterInfoBuilder.build(
             bookId,
             chapterId,
@@ -392,6 +389,23 @@ public class FQChapterPrefetchService {
             decryptedContent,
             downloadProperties.isChapterIncludeRawContent()
         );
+    }
+
+    /**
+     * BadPadding 通常意味着 key 不匹配。这里做一次受控重试：刷新 registerkey 后仅再尝试一次。
+     */
+    private String decryptChapterContentWithRetry(String bookId, String chapterId, String encrypted, Long contentKeyver) throws Exception {
+        String key = registerKeyService.getDecryptionKey(contentKeyver);
+        try {
+            return FqCrypto.decryptAndDecompressContent(encrypted, key);
+        } catch (BadPaddingException first) {
+            log.warn("章节解密失败(BadPadding)，刷新registerkey后重试一次 - bookId: {}, chapterId: {}, keyver={}",
+                bookId, chapterId, contentKeyver);
+            registerKeyService.invalidateCurrentKey();
+            registerKeyService.refreshRegisterKey();
+            String retryKey = registerKeyService.getDecryptionKey(contentKeyver);
+            return FqCrypto.decryptAndDecompressContent(encrypted, retryKey);
+        }
     }
 
     private static String cacheKey(String bookId, String chapterId) {

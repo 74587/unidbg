@@ -28,8 +28,4 @@ public class FQNovelRequest {
      */
     private String iid;
     
-    /**
-     * 用户token (可选, 获取付费章节时需要)
-     */
-    private String token;
 }

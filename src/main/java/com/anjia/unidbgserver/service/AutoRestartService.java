@@ -133,9 +133,9 @@ public class AutoRestartService {
                 }
 
                 try {
-                    registerKeyService.clearCache();
+                    registerKeyService.invalidateCurrentKey();
                 } catch (Throwable t) {
-                    log.warn("自愈：清除 registerkey 缓存失败", t);
+                    log.warn("自愈：失效当前 registerkey 失败", t);
                 }
 
                 try {
