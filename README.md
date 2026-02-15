@@ -23,8 +23,13 @@ mvn -DskipTests package
 java -jar target/fqnovel.jar
 ```
 ## docker
+本地缓存版
 ```bash
 docker run -d --name fqnovel --restart=unless-stopped -p 9999:9999 gxmandppx/unidbg-fq:latest
+```
+postgresql缓存版
+```bash
+docker run -d --name fqnovel --restart=unless-stopped -p 9999:9999 -e DB_ENABLE=true -e DB_URL='postgresql://postgres:123456@127.0.0.1:5432/fqnovel' gxmandppx/unidbg-fq:latest
 ```
 
 ## 免责声明
