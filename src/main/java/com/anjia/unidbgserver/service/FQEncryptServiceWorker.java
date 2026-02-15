@@ -60,7 +60,7 @@ public class FQEncryptServiceWorker extends Worker {
         if (this.unidbgProperties.isAsync()) {
             // 修复：使用配置的线程池大小，确保至少为1
             int actualPoolSize = Math.max(1, poolSize);
-            pool = WorkerPoolFactory.create(pool -> new FQEncryptServiceWorker(unidbgProperties.isDynarmic(),
+            pool = WorkerPoolFactory.create(pool -> new FQEncryptServiceWorker(
                 unidbgProperties.isVerbose(), unidbgProperties.getApkPath(), unidbgProperties.getApkClasspath(), pool), actualPoolSize);
             log.info("FQ签名服务线程池大小为:{}", actualPoolSize);
         } else {
@@ -68,14 +68,13 @@ public class FQEncryptServiceWorker extends Worker {
         }
     }
 
-    public FQEncryptServiceWorker(boolean dynarmic, boolean verbose, String apkPath, String apkClasspath, WorkerPool pool) {
+    public FQEncryptServiceWorker(boolean verbose, String apkPath, String apkClasspath, WorkerPool pool) {
         super(pool);
         this.unidbgProperties = new UnidbgProperties();
-        unidbgProperties.setDynarmic(dynarmic);
         unidbgProperties.setVerbose(verbose);
         unidbgProperties.setApkPath(apkPath);
         unidbgProperties.setApkClasspath(apkClasspath);
-        log.info("FQ签名服务 - 是否启用动态引擎:{}, 是否打印详细信息:{}", dynarmic, verbose);
+        log.info("FQ签名服务 - 是否打印详细信息:{}", verbose);
         this.fqEncryptService = new FQEncryptService(unidbgProperties);
     }
 

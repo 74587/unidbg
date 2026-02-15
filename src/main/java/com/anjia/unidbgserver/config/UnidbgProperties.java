@@ -13,10 +13,6 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 @ConfigurationProperties(prefix = "application.unidbg")
 public class UnidbgProperties {
     /**
-     * 是否使用 DynarmicFactory
-     */
-    boolean dynarmic;
-    /**
      * 是否打印调用信息
      */
     boolean verbose;

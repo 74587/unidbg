@@ -201,11 +201,8 @@ public class FQNovelService {
                         if (signerFail || (empty && attempt >= 2)) {
                             FQEncryptServiceWorker.requestGlobalReset(rotateReason);
                         }
-                        if (illegal) {
-                            deviceRotationService.forceRotate(rotateReason);
-                        } else {
-                            deviceRotationService.rotateIfNeeded(rotateReason);
-                        }
+                        // 所有可重试异常都遵循设备切换冷却，避免高并发时在设备池里来回抖动。
+                        deviceRotationService.rotateIfNeeded(rotateReason);
                     }
 
                     // 指数退避 + 轻微抖动，避免并发重试打爆上游

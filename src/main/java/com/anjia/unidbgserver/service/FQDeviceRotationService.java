@@ -274,13 +274,7 @@ public class FQDeviceRotationService {
         FQApiProperties.DeviceProfile profile = null;
         int idx = -1;
         for (int i = 0; i < pool.size(); i++) {
-            // 修复：使用 Math.floorMod 防止整数溢出，并确保索引在有效范围内
-            int currentIndex = poolIndex.get();
-            // 如果索引接近 Integer.MAX_VALUE，重置为 0
-            if (currentIndex > Integer.MAX_VALUE - 1000) {
-                poolIndex.set(0);
-                currentIndex = 0;
-            }
+            // 使用 Math.floorMod 自动处理整数溢出，确保索引始终在有效范围内
             int candidateIdx = Math.floorMod(poolIndex.getAndIncrement(), pool.size());
             FQApiProperties.DeviceProfile candidate = pool.get(candidateIdx);
             if (candidate == null) {
