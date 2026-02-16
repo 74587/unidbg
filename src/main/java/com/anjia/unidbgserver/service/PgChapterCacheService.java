@@ -1,10 +1,11 @@
 package com.anjia.unidbgserver.service;
 
 import com.anjia.unidbgserver.dto.FQNovelChapterInfo;
+import com.anjia.unidbgserver.config.DbUrlPresentCondition;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
+import org.springframework.context.annotation.Conditional;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 
@@ -16,7 +17,7 @@ import javax.annotation.PostConstruct;
 @Slf4j
 @Service
 @RequiredArgsConstructor
-@ConditionalOnBean(JdbcTemplate.class)
+@Conditional(DbUrlPresentCondition.class)
 public class PgChapterCacheService {
 
     private static final String CREATE_TABLE_SQL =
