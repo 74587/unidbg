@@ -24,7 +24,7 @@ public class PgChapterCacheService {
         "CREATE TABLE IF NOT EXISTS chapter ("
             + "book_id VARCHAR(64) NOT NULL,"
             + "chapter_id VARCHAR(64) NOT NULL,"
-            + "payload JSONB NOT NULL,"
+            + "payload TEXT NOT NULL,"
             + "updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),"
             + "PRIMARY KEY (book_id, chapter_id)"
             + ")";
@@ -33,11 +33,11 @@ public class PgChapterCacheService {
         "CREATE INDEX IF NOT EXISTS chapter_idx ON chapter(updated_at)";
 
     private static final String SELECT_SQL =
-        "SELECT payload::text FROM chapter WHERE book_id = ? AND chapter_id = ? LIMIT 1";
+        "SELECT payload FROM chapter WHERE book_id = ? AND chapter_id = ? LIMIT 1";
 
     private static final String UPSERT_SQL =
         "INSERT INTO chapter (book_id, chapter_id, payload, updated_at) "
-            + "VALUES (?, ?, CAST(? AS jsonb), now()) "
+            + "VALUES (?, ?, ?, now()) "
             + "ON CONFLICT (book_id, chapter_id) "
             + "DO UPDATE SET payload = EXCLUDED.payload, updated_at = now()";
 
