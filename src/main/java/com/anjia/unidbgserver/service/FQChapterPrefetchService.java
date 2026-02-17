@@ -44,6 +44,7 @@ public class FQChapterPrefetchService {
     private Executor prefetchExecutor;
 
     private Cache<String, FQNovelChapterInfo> chapterCache;
+    private Cache<String, String> chapterNegativeCache;
     private Cache<String, DirectoryIndex> directoryCache;
     private final ConcurrentHashMap<String, CompletableFuture<Void>> inflightPrefetch = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<String, CompletableFuture<DirectoryIndex>> inflightDirectory = new ConcurrentHashMap<>();
@@ -52,10 +53,12 @@ public class FQChapterPrefetchService {
     public void initCaches() {
         int chapterMax = Math.max(1, downloadProperties.getChapterCacheMaxEntries());
         long chapterTtl = downloadProperties.getChapterCacheTtlMs();
+        long chapterNegativeTtl = Math.max(0L, downloadProperties.getChapterNegativeCacheTtlMs());
         int dirMax = Math.max(64, chapterMax / 10);
         long dirTtl = downloadProperties.getDirectoryCacheTtlMs();
 
         this.chapterCache = LocalCacheFactory.build(chapterMax, chapterTtl);
+        this.chapterNegativeCache = chapterNegativeTtl > 0 ? LocalCacheFactory.build(chapterMax, chapterNegativeTtl) : null;
         this.directoryCache = LocalCacheFactory.build(dirMax, dirTtl);
     }
 
@@ -89,6 +92,11 @@ public class FQChapterPrefetchService {
             return CompletableFuture.completedFuture(FQNovelResponse.success(persisted));
         }
 
+        String cachedFailure = getCachedChapterFailure(bookId, chapterId);
+        if (cachedFailure != null) {
+            return CompletableFuture.completedFuture(FQNovelResponse.<FQNovelChapterInfo>error("获取章节内容失败: " + cachedFailure));
+        }
+
         // 预取：优先在目录中定位章节顺序，拉取后缓存（非阻塞链式调用，避免线程池互等死锁）
         return prefetchAndCacheDedup(bookId, chapterId)
             .exceptionally(ex -> null) // 预取失败不影响单章兜底
@@ -115,6 +123,7 @@ public class FQChapterPrefetchService {
                         cacheChapter(bookId, chapterId, info);
                         return FQNovelResponse.success(info);
                     } catch (Exception e) {
+                        cacheChapterFailure(bookId, chapterId, e.getMessage());
                         throw new RuntimeException(e);
                     }
                 });
@@ -122,6 +131,7 @@ public class FQChapterPrefetchService {
             .exceptionally(e -> {
                 Throwable t = e instanceof java.util.concurrent.CompletionException && e.getCause() != null ? e.getCause() : e;
                 String msg = t.getMessage() != null ? t.getMessage() : t.toString();
+                cacheChapterFailure(bookId, chapterId, msg);
                 if (msg.contains("Encrypted data too short") || msg.contains("章节内容为空/过短") || msg.contains("upstream item code=")) {
                     log.warn("单章获取失败 - bookId: {}, chapterId: {}, reason={}", bookId, chapterId, msg);
                     log.debug("单章获取失败详情 - bookId: {}, chapterId: {}", bookId, chapterId, t);
@@ -211,6 +221,7 @@ public class FQChapterPrefetchService {
                         FQNovelChapterInfo info = buildChapterInfo(bookId, itemId, content);
                         cacheChapter(bookId, itemId, info);
                     } catch (Exception e) {
+                        cacheChapterFailure(bookId, itemId, e.getMessage());
                         log.debug("预取章节处理失败 - bookId: {}, itemId: {}", bookId, itemId, e);
                     }
                 }
@@ -327,6 +338,7 @@ public class FQChapterPrefetchService {
         FQNovelChapterInfo persisted = pgCacheService.getChapter(bookId, chapterId);
         if (persisted != null) {
             chapterCache.put(cacheKey(bookId, chapterId), persisted);
+            evictChapterFailure(bookId, chapterId);
         }
         return persisted;
     }
@@ -337,6 +349,7 @@ public class FQChapterPrefetchService {
         }
 
         chapterCache.put(cacheKey(bookId, chapterId), chapterInfo);
+        evictChapterFailure(bookId, chapterId);
 
         PgChapterCacheService pgCacheService = pgChapterCacheServiceProvider.getIfAvailable();
         if (pgCacheService != null) {
@@ -410,6 +423,60 @@ public class FQChapterPrefetchService {
 
     private static String cacheKey(String bookId, String chapterId) {
         return bookId + ":" + chapterId;
+    }
+
+    private String getCachedChapterFailure(String bookId, String chapterId) {
+        if (chapterNegativeCache == null) {
+            return null;
+        }
+        String reason = chapterNegativeCache.getIfPresent(cacheKey(bookId, chapterId));
+        if (!hasText(reason)) {
+            return null;
+        }
+        return reason;
+    }
+
+    private void cacheChapterFailure(String bookId, String chapterId, String reason) {
+        if (chapterNegativeCache == null || !hasText(bookId) || !hasText(chapterId)) {
+            return;
+        }
+        String normalized = normalizeFailureReason(reason);
+        if (!isChapterFailureCacheable(normalized)) {
+            return;
+        }
+        chapterNegativeCache.put(cacheKey(bookId, chapterId), normalized);
+    }
+
+    private void evictChapterFailure(String bookId, String chapterId) {
+        if (chapterNegativeCache == null || !hasText(bookId) || !hasText(chapterId)) {
+            return;
+        }
+        chapterNegativeCache.invalidate(cacheKey(bookId, chapterId));
+    }
+
+    private static String normalizeFailureReason(String reason) {
+        if (!hasText(reason)) {
+            return "";
+        }
+        String normalized = reason.trim();
+        if (normalized.startsWith("java.lang.IllegalArgumentException:")) {
+            normalized = normalized.substring("java.lang.IllegalArgumentException:".length()).trim();
+        } else if (normalized.startsWith("java.lang.IllegalStateException:")) {
+            normalized = normalized.substring("java.lang.IllegalStateException:".length()).trim();
+        } else if (normalized.startsWith("java.lang.RuntimeException:")) {
+            normalized = normalized.substring("java.lang.RuntimeException:".length()).trim();
+        }
+        return normalized;
+    }
+
+    private static boolean isChapterFailureCacheable(String reason) {
+        if (!hasText(reason)) {
+            return false;
+        }
+        return reason.contains("章节内容为空/过短")
+            || reason.contains("章节内容为空")
+            || reason.contains("upstream item code=")
+            || reason.contains("Encrypted data too short");
     }
 
 

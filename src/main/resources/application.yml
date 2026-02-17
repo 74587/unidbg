@@ -40,6 +40,7 @@ fq:
     upstream-read-timeout-ms: 30000
     chapter-cache-max-entries: 2000
     chapter-cache-ttl-ms: 1800000
+    chapter-negative-cache-ttl-ms: 600000
     chapter-include-raw-content: false
     search-cache-max-entries: 256
     search-cache-ttl-ms: 45000

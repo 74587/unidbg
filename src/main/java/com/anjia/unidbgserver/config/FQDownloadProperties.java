@@ -57,6 +57,11 @@ public class FQDownloadProperties {
     private long chapterCacheTtlMs = 30 * 60 * 1000L;
 
     /**
+     * 章节失败负缓存 TTL（ms）：同一章节短时间内连续失败时，直接返回失败，避免反复回源触发风控。
+     */
+    private long chapterNegativeCacheTtlMs = 10 * 60 * 1000L;
+
+    /**
      * 章节响应是否包含 rawContent（原始 HTML）。默认关闭以减少内存与传输开销。
      */
     private boolean chapterIncludeRawContent = false;

@@ -24,11 +24,6 @@ public class FQNovelResponse<T> {
     private T data;
     
     /**
-     * 请求ID
-     */
-    private String requestId;
-    
-    /**
      * 服务器时间戳
      */
     private Long serverTime;

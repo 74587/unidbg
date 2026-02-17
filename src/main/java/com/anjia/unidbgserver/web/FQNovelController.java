@@ -33,7 +33,7 @@ public class FQNovelController {
      * @return 书籍详情信息（精简）
      */
     @GetMapping("/book/{bookId}")
-    public CompletableFuture<FQNovelResponse<FQNovelBookInfoSimple>> getBookInfo(@PathVariable String bookId) {
+    public CompletableFuture<FQNovelResponse<FQNovelBookInfo>> getBookInfo(@PathVariable String bookId) {
         if (log.isDebugEnabled()) {
             log.debug("获取书籍信息 - bookId: {}", bookId);
         }
@@ -43,17 +43,8 @@ public class FQNovelController {
                 FQNovelResponse.error("书籍ID不能为空")
             );
         }
-        
-        // 获取完整信息后转换为精简版
-        return fqNovelService.getBookInfo(bookId.trim())
-            .thenApply(response -> {
-                if (response == null || response.getCode() == null || response.getCode() != 0) {
-                    return FQNovelResponse.error(response != null ? response.getMessage() : "获取失败");
-                }
-                
-                FQNovelBookInfoSimple simple = FQNovelBookInfoSimple.fromFull(response.getData());
-                return FQNovelResponse.success(simple);
-            });
+
+        return fqNovelService.getBookInfo(bookId.trim());
     }
 
     /**
