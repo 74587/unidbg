@@ -27,6 +27,23 @@ import java.util.concurrent.ThreadLocalRandom;
 @Service
 public class FQNovelService {
 
+    private static final String BATCH_FULL_PATH = "/reading/reader/batch_full/v";
+    private static final String REASON_ILLEGAL_ACCESS = "ILLEGAL_ACCESS";
+    private static final String REASON_UPSTREAM_EMPTY = "UPSTREAM_EMPTY";
+    private static final String REASON_UPSTREAM_GZIP = "UPSTREAM_GZIP";
+    private static final String REASON_UPSTREAM_NON_JSON = "UPSTREAM_NON_JSON";
+    private static final String REASON_SIGNER_FAIL = "SIGNER_FAIL";
+
+    private static final String EX_EMPTY_UPSTREAM_RESPONSE = "Empty upstream response";
+    private static final String EX_NON_JSON_UPSTREAM_RESPONSE = "UPSTREAM_NON_JSON";
+    private static final String EX_SIGNER_FAIL = "签名生成失败";
+    private static final String EX_GZIP_NOT_IN_FORMAT = "Not in GZIP format";
+    private static final String EX_JACKSON_EMPTY_CONTENT = "No content to map due to end-of-input";
+
+    private static final long ILLEGAL_ACCESS_CODE = 110L;
+    private static final int MAX_BACKOFF_EXPONENT = 10;
+    private static final long RETRY_JITTER_MAX_MS = 250L;
+    private static final int SIGNER_RESET_ON_EMPTY_ATTEMPT_THRESHOLD = 2;
 
 
     @Resource(name = "fqEncryptWorker")
@@ -79,150 +96,188 @@ public class FQNovelService {
      * @return 内容响应
      */
     public CompletableFuture<FQNovelResponse<FqIBatchFullResponse>> batchFull(String itemIds, String bookId, boolean download) {
-        return CompletableFuture.supplyAsync(() -> {
-            if (ProcessLifecycle.isShuttingDown()) {
-                return FQNovelResponse.error("服务正在退出中，请稍后重试");
-            }
+        return CompletableFuture.supplyAsync(() -> executeBatchFullWithRetry(itemIds, bookId, download), taskExecutor);
+    }
 
-            int maxAttempts = Math.max(1, downloadProperties.getMaxRetries());
-            long baseDelayMs = Math.max(0L, downloadProperties.getRetryDelayMs());
-            long maxDelayMs = Math.max(baseDelayMs, downloadProperties.getRetryMaxDelayMs());
+    private FQNovelResponse<FqIBatchFullResponse> executeBatchFullWithRetry(String itemIds, String bookId, boolean download) {
+        if (ProcessLifecycle.isShuttingDown()) {
+            return FQNovelResponse.error("服务正在退出中，请稍后重试");
+        }
 
-            for (int attempt = 1; attempt <= maxAttempts; attempt++) {
-                try {
-                    FqVariable var = getDefaultFqVariable();
+        int maxAttempts = Math.max(1, downloadProperties.getMaxRetries());
+        long baseDelayMs = Math.max(0L, downloadProperties.getRetryDelayMs());
+        long maxDelayMs = Math.max(baseDelayMs, downloadProperties.getRetryMaxDelayMs());
 
-                    // 使用工具类构建URL和参数
-                    String url = fqApiUtils.getBaseUrl() + "/reading/reader/batch_full/v";
-                    Map<String, String> params = fqApiUtils.buildBatchFullParams(var, itemIds, bookId, download);
-                    String fullUrl = fqApiUtils.buildUrlWithParams(url, params);
-
-                    // 使用工具类构建请求头
-                    Map<String, String> headers = fqApiUtils.buildCommonHeaders();
-
-                    // 使用现有的签名服务生成签名
-                    upstreamRateLimiter.acquire();
-                    Map<String, String> signedHeaders = fqEncryptServiceWorker.generateSignatureHeadersSync(fullUrl, headers);
-                    if (signedHeaders == null || signedHeaders.isEmpty()) {
-                        throw new IllegalStateException("签名生成失败");
-                    }
-
-                    // 发起API请求
-                    HttpHeaders httpHeaders = new HttpHeaders();
-                    headers.forEach(httpHeaders::set);
-                    signedHeaders.forEach(httpHeaders::set);
-
-                    HttpEntity<String> entity = new HttpEntity<>(httpHeaders);
-                    ResponseEntity<byte[]> response = restTemplate.exchange(fullUrl, HttpMethod.GET, entity, byte[].class);
-
-                    String responseBody = GzipUtils.decodeUpstreamResponse(response);
-
-                    // 如果响应体为空，视为需要更换设备并重试
-                    String trimmedBody = responseBody.trim();
-                    if (trimmedBody.isEmpty()) {
-                        throw new RuntimeException("Empty upstream response");
-                    }
-
-                    // 上游可能返回 HTML/非 JSON（例如风控/拦截页）；这种情况也走自愈重试
-                    if (trimmedBody.startsWith("<")) {
-                        if (trimmedBody.contains("ILLEGAL_ACCESS")) {
-                            throw new IllegalStateException("ILLEGAL_ACCESS");
-                        }
-                        throw new IllegalStateException("UPSTREAM_NON_JSON");
-                    }
-                    if (!trimmedBody.startsWith("{") && !trimmedBody.startsWith("[")) {
-                        if (trimmedBody.contains("ILLEGAL_ACCESS")) {
-                            throw new IllegalStateException("ILLEGAL_ACCESS");
-                        }
-                        throw new IllegalStateException("UPSTREAM_NON_JSON");
-                    }
-
-                    // 解析响应
-                    FqIBatchFullResponse batchResponse = objectMapper.readValue(responseBody, FqIBatchFullResponse.class);
-
-                    if (batchResponse == null) {
-                        throw new RuntimeException("Upstream parse failed");
-                    }
-
-                    if (batchResponse.getCode() != 0) {
-                        String msg = batchResponse.getMessage() != null ? batchResponse.getMessage() : "";
-                        String raw = responseBody;
-                        if (isIllegalAccess(batchResponse.getCode(), msg, raw)) {
-                            throw new IllegalStateException("ILLEGAL_ACCESS");
-                        }
-                        return FQNovelResponse.error((int) batchResponse.getCode(), msg);
-                    }
-
-                    autoRestartService.recordSuccess();
-                    return FQNovelResponse.success(batchResponse);
-
-                } catch (Exception e) {
-                    String message = e.getMessage() != null ? e.getMessage() : "";
-                    boolean illegal = message.contains("ILLEGAL_ACCESS");
-                    boolean empty = message.contains("Empty upstream response") || message.contains("No content to map due to end-of-input");
-                    boolean gzipErr = message.contains("Not in GZIP format");
-                    boolean nonJson = message.contains("UPSTREAM_NON_JSON");
-                    boolean signerFail = message.contains("签名生成失败");
-
-                    boolean retryable = illegal || empty || gzipErr || nonJson || signerFail;
-                    if (!retryable || attempt >= maxAttempts) {
-                        if (retryable) {
-                            String reason = illegal ? "ILLEGAL_ACCESS"
-                                : (empty ? "UPSTREAM_EMPTY"
-                                : (gzipErr ? "UPSTREAM_GZIP"
-                                : (nonJson ? "UPSTREAM_NON_JSON" : "SIGNER_FAIL")));
-                            autoRestartService.recordFailure(reason);
-                        }
-                        if (retryable && illegal) {
-                            return FQNovelResponse.error("获取章节内容失败: ILLEGAL_ACCESS（已重试仍失败，建议更换设备/降低频率）");
-                        }
-                        if (retryable && gzipErr) {
-                            return FQNovelResponse.error("获取章节内容失败: 响应格式异常（已重试仍失败）");
-                        }
-                        if (retryable && nonJson) {
-                            return FQNovelResponse.error("获取章节内容失败: 上游返回非JSON（已重试仍失败）");
-                        }
-                        if (retryable && empty) {
-                            return FQNovelResponse.error("获取章节内容失败: 空响应（已重试仍失败）");
-                        }
-                        if (retryable && signerFail) {
-                            return FQNovelResponse.error("获取章节内容失败: 签名生成失败（已重试仍失败）");
-                        }
-                        log.error("获取章节内容失败 - itemIds: {}", itemIds, e);
-                        return FQNovelResponse.error("获取章节内容失败: " + message);
-                    }
-
-                    if (retryable) {
-                        String rotateReason = illegal ? "ILLEGAL_ACCESS"
-                            : (empty ? "UPSTREAM_EMPTY"
-                            : (gzipErr ? "UPSTREAM_GZIP"
-                            : (nonJson ? "UPSTREAM_NON_JSON" : "SIGNER_FAIL")));
-
-                        if (signerFail || (empty && attempt >= 2)) {
-                            FQEncryptServiceWorker.requestGlobalReset(rotateReason);
-                        }
-                        // 所有可重试异常都遵循设备切换冷却，避免高并发时在设备池里来回抖动。
-                        deviceRotationService.rotateIfNeeded(rotateReason);
-                    }
-
-                    // 指数退避 + 轻微抖动，避免并发重试打爆上游
-                    long delay = baseDelayMs <= 0 ? 0 : baseDelayMs * (1L << Math.min(10, attempt - 1));
-                    delay = Math.min(delay, maxDelayMs);
-                    delay += ThreadLocalRandom.current().nextLong(0, 250);
-                    try {
-                        Thread.sleep(delay);
-                    } catch (InterruptedException ie) {
-                        Thread.currentThread().interrupt();
-                        return FQNovelResponse.error("获取章节内容失败: 重试被中断");
-                    }
+        for (int attempt = 1; attempt <= maxAttempts; attempt++) {
+            try {
+                return fetchBatchFullOnce(itemIds, bookId, download);
+            } catch (Exception e) {
+                FQNovelResponse<FqIBatchFullResponse> decision =
+                    handleBatchFullException(e, itemIds, attempt, maxAttempts, baseDelayMs, maxDelayMs);
+                if (decision != null) {
+                    return decision;
                 }
             }
-            return FQNovelResponse.error("获取章节内容失败: 超过最大重试次数");
-        }, taskExecutor);
+        }
+        return FQNovelResponse.error("获取章节内容失败: 超过最大重试次数");
+    }
+
+    private FQNovelResponse<FqIBatchFullResponse> fetchBatchFullOnce(String itemIds, String bookId, boolean download) throws Exception {
+        FqVariable var = getDefaultFqVariable();
+
+        String url = fqApiUtils.getBaseUrl() + BATCH_FULL_PATH;
+        Map<String, String> params = fqApiUtils.buildBatchFullParams(var, itemIds, bookId, download);
+        String fullUrl = fqApiUtils.buildUrlWithParams(url, params);
+
+        Map<String, String> headers = fqApiUtils.buildCommonHeaders();
+
+        upstreamRateLimiter.acquire();
+        Map<String, String> signedHeaders = fqEncryptServiceWorker.generateSignatureHeadersSync(fullUrl, headers);
+        if (signedHeaders == null || signedHeaders.isEmpty()) {
+            throw new IllegalStateException(EX_SIGNER_FAIL);
+        }
+
+        HttpHeaders httpHeaders = new HttpHeaders();
+        headers.forEach(httpHeaders::set);
+        signedHeaders.forEach(httpHeaders::set);
+
+        HttpEntity<String> entity = new HttpEntity<>(httpHeaders);
+        ResponseEntity<byte[]> response = restTemplate.exchange(fullUrl, HttpMethod.GET, entity, byte[].class);
+
+        String responseBody = GzipUtils.decodeUpstreamResponse(response);
+        String trimmedBody = responseBody.trim();
+        if (trimmedBody.isEmpty()) {
+            throw new RuntimeException(EX_EMPTY_UPSTREAM_RESPONSE);
+        }
+
+        if (trimmedBody.startsWith("<")) {
+            if (trimmedBody.contains(REASON_ILLEGAL_ACCESS)) {
+                throw new IllegalStateException(REASON_ILLEGAL_ACCESS);
+            }
+            throw new IllegalStateException(EX_NON_JSON_UPSTREAM_RESPONSE);
+        }
+        if (!trimmedBody.startsWith("{") && !trimmedBody.startsWith("[")) {
+            if (trimmedBody.contains(REASON_ILLEGAL_ACCESS)) {
+                throw new IllegalStateException(REASON_ILLEGAL_ACCESS);
+            }
+            throw new IllegalStateException(EX_NON_JSON_UPSTREAM_RESPONSE);
+        }
+
+        FqIBatchFullResponse batchResponse = objectMapper.readValue(responseBody, FqIBatchFullResponse.class);
+        if (batchResponse == null) {
+            throw new RuntimeException("Upstream parse failed");
+        }
+
+        if (batchResponse.getCode() != 0) {
+            String msg = batchResponse.getMessage() != null ? batchResponse.getMessage() : "";
+            if (isIllegalAccess(batchResponse.getCode(), msg, responseBody)) {
+                throw new IllegalStateException(REASON_ILLEGAL_ACCESS);
+            }
+            return FQNovelResponse.error((int) batchResponse.getCode(), msg);
+        }
+
+        autoRestartService.recordSuccess();
+        return FQNovelResponse.success(batchResponse);
+    }
+
+    private FQNovelResponse<FqIBatchFullResponse> handleBatchFullException(
+        Exception e,
+        String itemIds,
+        int attempt,
+        int maxAttempts,
+        long baseDelayMs,
+        long maxDelayMs
+    ) {
+        String message = e.getMessage() != null ? e.getMessage() : "";
+        String retryReason = resolveRetryReason(message);
+        boolean retryable = retryReason != null;
+
+        if (!retryable || attempt >= maxAttempts) {
+            if (retryable) {
+                autoRestartService.recordFailure(retryReason);
+            }
+            return buildBatchFullFailureResponse(retryReason, message, itemIds, e);
+        }
+
+        if (REASON_SIGNER_FAIL.equals(retryReason)
+            || (REASON_UPSTREAM_EMPTY.equals(retryReason) && attempt >= SIGNER_RESET_ON_EMPTY_ATTEMPT_THRESHOLD)) {
+            FQEncryptServiceWorker.requestGlobalReset(retryReason);
+        }
+        // 所有可重试异常都遵循设备切换冷却，避免高并发时在设备池里来回抖动。
+        deviceRotationService.rotateIfNeeded(retryReason);
+
+        long delay = computeRetryDelay(baseDelayMs, maxDelayMs, attempt);
+        try {
+            Thread.sleep(delay);
+        } catch (InterruptedException interrupted) {
+            Thread.currentThread().interrupt();
+            return FQNovelResponse.error("获取章节内容失败: 重试被中断");
+        }
+
+        return null;
+    }
+
+    private static String resolveRetryReason(String message) {
+        boolean illegal = message.contains(REASON_ILLEGAL_ACCESS);
+        boolean empty = message.contains(EX_EMPTY_UPSTREAM_RESPONSE) || message.contains(EX_JACKSON_EMPTY_CONTENT);
+        boolean gzipErr = message.contains(EX_GZIP_NOT_IN_FORMAT);
+        boolean nonJson = message.contains(EX_NON_JSON_UPSTREAM_RESPONSE);
+        boolean signerFail = message.contains(EX_SIGNER_FAIL);
+
+        if (illegal) {
+            return REASON_ILLEGAL_ACCESS;
+        }
+        if (empty) {
+            return REASON_UPSTREAM_EMPTY;
+        }
+        if (gzipErr) {
+            return REASON_UPSTREAM_GZIP;
+        }
+        if (nonJson) {
+            return REASON_UPSTREAM_NON_JSON;
+        }
+        if (signerFail) {
+            return REASON_SIGNER_FAIL;
+        }
+        return null;
+    }
+
+    private static long computeRetryDelay(long baseDelayMs, long maxDelayMs, int attempt) {
+        long delay = baseDelayMs <= 0
+            ? 0L
+            : baseDelayMs * (1L << Math.min(MAX_BACKOFF_EXPONENT, Math.max(0, attempt - 1)));
+        delay = Math.min(delay, maxDelayMs);
+        delay += ThreadLocalRandom.current().nextLong(0, RETRY_JITTER_MAX_MS);
+        return delay;
+    }
+
+    private FQNovelResponse<FqIBatchFullResponse> buildBatchFullFailureResponse(
+        String retryReason,
+        String message,
+        String itemIds,
+        Exception e
+    ) {
+        if (REASON_ILLEGAL_ACCESS.equals(retryReason)) {
+            return FQNovelResponse.error("获取章节内容失败: ILLEGAL_ACCESS（已重试仍失败，建议更换设备/降低频率）");
+        }
+        if (REASON_UPSTREAM_GZIP.equals(retryReason)) {
+            return FQNovelResponse.error("获取章节内容失败: 响应格式异常（已重试仍失败）");
+        }
+        if (REASON_UPSTREAM_NON_JSON.equals(retryReason)) {
+            return FQNovelResponse.error("获取章节内容失败: 上游返回非JSON（已重试仍失败）");
+        }
+        if (REASON_UPSTREAM_EMPTY.equals(retryReason)) {
+            return FQNovelResponse.error("获取章节内容失败: 空响应（已重试仍失败）");
+        }
+        if (REASON_SIGNER_FAIL.equals(retryReason)) {
+            return FQNovelResponse.error("获取章节内容失败: 签名生成失败（已重试仍失败）");
+        }
+        log.error("获取章节内容失败 - itemIds: {}", itemIds, e);
+        return FQNovelResponse.error("获取章节内容失败: " + message);
     }
 
     private static boolean isIllegalAccess(long code, String message, String rawBody) {
-        if (code == 110) {
+        if (code == ILLEGAL_ACCESS_CODE) {
             return true;
         }
         String msg = message != null ? message : "";

@@ -28,6 +28,9 @@ import java.util.concurrent.Executor;
 @RequiredArgsConstructor
 public class FQChapterPrefetchService {
 
+    private static final int MIN_DIRECTORY_CACHE_MAX_ENTRIES = 64;
+    private static final int MAX_CHAPTER_PREFETCH_SIZE = 30;
+
     // 修复问题 #7：定义魔法数字为常量
     /**
      * Base64 编码的最小有效长度（16 bytes IV + 至少1 byte数据 = 24 chars）
@@ -54,7 +57,7 @@ public class FQChapterPrefetchService {
         int chapterMax = Math.max(1, downloadProperties.getChapterCacheMaxEntries());
         long chapterTtl = downloadProperties.getChapterCacheTtlMs();
         long chapterNegativeTtl = Math.max(0L, downloadProperties.getChapterNegativeCacheTtlMs());
-        int dirMax = Math.max(64, chapterMax / 10);
+        int dirMax = Math.max(MIN_DIRECTORY_CACHE_MAX_ENTRIES, chapterMax / 10);
         long dirTtl = downloadProperties.getDirectoryCacheTtlMs();
 
         this.chapterCache = LocalCacheFactory.build(chapterMax, chapterTtl);
@@ -181,7 +184,7 @@ public class FQChapterPrefetchService {
         if (index < 0) {
             return bookId + ":single:" + chapterId;
         }
-        int size = Math.max(1, Math.min(30, downloadProperties.getChapterPrefetchSize()));
+        int size = Math.max(1, Math.min(MAX_CHAPTER_PREFETCH_SIZE, downloadProperties.getChapterPrefetchSize()));
         int bucketStart = (index / size) * size;
         return bookId + ":bucket:" + bucketStart + ":" + size;
     }
@@ -199,7 +202,7 @@ public class FQChapterPrefetchService {
             if (index < 0) {
                 batchIds = Collections.singletonList(chapterId);
             } else {
-                int size = Math.max(1, Math.min(30, downloadProperties.getChapterPrefetchSize()));
+                int size = Math.max(1, Math.min(MAX_CHAPTER_PREFETCH_SIZE, downloadProperties.getChapterPrefetchSize()));
                 int endExclusive = Math.min(itemIds.size(), index + size);
                 batchIds = itemIds.subList(index, endExclusive);
             }

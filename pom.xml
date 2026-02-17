@@ -31,6 +31,7 @@
         <streamex.version>0.8.4</streamex.version>
         <commons-codec.version>1.21.0</commons-codec.version>
         <caffeine.version>2.9.3</caffeine.version>
+        <postgresql.version>42.7.10</postgresql.version>
 
         <!-- 跳过测试（可通过命令行 -Dmaven.test.skip=false 覆盖） -->
         <maven.test.skip>true</maven.test.skip>
@@ -94,6 +95,7 @@
         <dependency>
             <groupId>org.postgresql</groupId>
             <artifactId>postgresql</artifactId>
+            <version>${postgresql.version}</version>
         </dependency>
         <dependency>
             <groupId>com.github.ben-manes.caffeine</groupId>
