@@ -29,7 +29,7 @@ docker run -d --name fqnovel --restart=unless-stopped -p 9999:9999 gxmandppx/uni
 ```
 postgresql缓存版
 ```bash
-docker run -d --name fqnovel --restart=unless-stopped -p 9999:9999 -e DB_URL='postgresql://postgres:123456@127.0.0.1:5432/fqnovel' gxmandppx/unidbg-fq:latest
+docker run -d --name fqnovel --restart=unless-stopped -p 9999:9999 -e DB_URL='postgresql://user:password@ip:端口/db' gxmandppx/unidbg-fq:latest
 ```
 
 ## 免责声明
