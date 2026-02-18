@@ -35,7 +35,7 @@ docker run -d --name fqnovel --restart=unless-stopped -p 9999:9999 -e DB_URL='po
 ## ☕ 支持与赞赏
 
 如果你觉得这个项目对你有帮助，欢迎打赏支持！你的支持是我持续维护和更新的最大动力。
-
+仅支持L站积分。
 [![Sponsor Mengying](https://img.shields.io/badge/Sponsor-Mengying-ea4aaa?style=for-the-badge&logo=heart&logoColor=white)](https://shop.mengying.me/pay)
 
 👉 [点击这里前往赞赏页面](https://shop.mengying.me/pay)
