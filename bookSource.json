@@ -1,15 +1,15 @@
 [
   {
-    "bookSourceComment": "番茄小说书源 - 请将 bookSourceUrl 改为你的服务器地址\n注意：不要开启预下载功能，避免频繁请求触发风控",
+    "bookSourceComment": "请将 bookSourceUrl 改为你的服务器地址\n注意：不要开启预下载功能，避免频繁请求触发风控\n不含书架功能",
     "bookSourceGroup": "番茄",
-    "bookSourceName": "番茄小说",
+    "bookSourceName": "番茄",
     "bookSourceType": 0,
-    "bookSourceUrl": "http://ip:9999",
+    "bookSourceUrl": "http://ip:端口",
     "customOrder": 0,
     "enabled": true,
     "enabledCookieJar": false,
-    "enabledExplore": false,
-    "exploreUrl": "",
+    "enabledExplore": true,
+    "exploreUrl": "@js:\nvar tags = ['玄幻', '都市', '历史', '武侠', '修仙', '系统', '穿越', '无敌', '反派', '悬疑', '惊悚', '完结'];\nvar items = [];\nfor (var i = 0; i < tags.length; i++) {\n  var key = tags[i];\n  var base = '/search?key=' + encodeURIComponent(key) + '&page={{page}}&size=20&tabType=3';\n  var paged = base + \"@js:\\n\"\n    + \"var pageMatch = /(?:^|[?&])page=(\\\\d+)/.exec(result);\\n\"\n    + \"var currentPage = pageMatch ? parseInt(pageMatch[1], 10) : 1;\\n\"\n    + \"if (currentPage === 1) { java.put('search_id', ''); }\\n\"\n    + \"var searchId = java.get('search_id');\\n\"\n    + \"if (searchId && currentPage > 1) { result = result + '&searchId=' + encodeURIComponent(searchId); }\\n\"\n    + \"result;\";\n  items.push({\n    title: key,\n    url: paged,\n    style: {\n      layout_flexGrow: 1,\n      layout_flexBasisPercent: 0.3333\n    }\n  });\n}\nJSON.stringify(items);",
     "header": "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
     "lastUpdateTime": 1770393771729,
     "respondTime": 180000,
@@ -27,7 +27,17 @@
       "content": "$.data.txtContent",
       "title": "$.data.title"
     },
-    "ruleExplore": {},
+    "ruleExplore": {
+      "author": "$.author",
+      "bookList": "$.data.books[*]",
+      "bookUrl": "/book/{{$.bookId}}",
+      "coverUrl": "$.coverUrl",
+      "intro": "$.description",
+      "kind": "$.category",
+      "lastChapter": "$.lastChapterTitle",
+      "name": "$.bookName\n<js>\nvar searchId = java.getString('$..searchId');\nif (searchId) {\n    java.put('search_id', searchId);\n}\nresult\n</js>",
+      "wordCount": "$.wordCount"
+    },
     "ruleSearch": {
       "author": "$.author",
       "bookList": "$.data.books[*]",
