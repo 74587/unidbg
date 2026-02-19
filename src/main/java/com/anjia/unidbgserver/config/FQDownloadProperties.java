@@ -47,6 +47,26 @@ public class FQDownloadProperties {
     private int chapterPrefetchSize = 30;
 
     /**
+     * 章节预取线程池核心线程数
+     */
+    private int prefetchExecutorCoreSize = 2;
+
+    /**
+     * 章节预取线程池最大线程数
+     */
+    private int prefetchExecutorMaxSize = 2;
+
+    /**
+     * 章节预取线程池队列容量
+     */
+    private int prefetchExecutorQueueCapacity = 256;
+
+    /**
+     * 章节预取线程池线程存活时间（秒）
+     */
+    private int prefetchExecutorKeepAliveSeconds = 60;
+
+    /**
      * 章节内容缓存最大条数
      */
     private int chapterCacheMaxEntries = 2000;

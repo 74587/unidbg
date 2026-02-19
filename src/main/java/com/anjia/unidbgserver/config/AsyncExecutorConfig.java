@@ -43,11 +43,18 @@ public class AsyncExecutorConfig {
      */
     @Bean(name = "fqPrefetchExecutor")
     @ConditionalOnMissingBean(name = "fqPrefetchExecutor")
-    public Executor fqPrefetchExecutor() {
+    public Executor fqPrefetchExecutor(FQDownloadProperties downloadProperties) {
+        int coreSize = Math.max(1, downloadProperties.getPrefetchExecutorCoreSize());
+        int maxSize = Math.max(coreSize, downloadProperties.getPrefetchExecutorMaxSize());
+        int queueCapacity = Math.max(0, downloadProperties.getPrefetchExecutorQueueCapacity());
+        int keepAliveSeconds = Math.max(0, downloadProperties.getPrefetchExecutorKeepAliveSeconds());
+
         ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
-        executor.setCorePoolSize(2);
-        executor.setMaxPoolSize(2);
-        executor.setQueueCapacity(256);
+        executor.setCorePoolSize(coreSize);
+        executor.setMaxPoolSize(maxSize);
+        executor.setQueueCapacity(queueCapacity);
+        executor.setKeepAliveSeconds(keepAliveSeconds);
+        executor.setAllowCoreThreadTimeOut(true);
         executor.setThreadNamePrefix("fq-prefetch-");
         executor.initialize();
         return executor;

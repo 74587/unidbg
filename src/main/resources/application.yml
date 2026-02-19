@@ -28,9 +28,6 @@ fq:
     postgres:
       # 配置 DB_URL（postgresql://user:pass@host:port/db）后自动启用 PostgreSQL 主缓存
       url: ${DB_URL:}
-      maximum-pool-size: ${DATABASE_MAXIMUM_POOL_SIZE:8}
-      minimum-idle: ${DATABASE_MINIMUM_IDLE:2}
-      connection-timeout-ms: ${DATABASE_CONNECTION_TIMEOUT_MS:5000}
   download:
     request-interval-ms: 1000
     max-retries: 3
@@ -38,8 +35,13 @@ fq:
     retry-max-delay-ms: 10000
     upstream-connect-timeout-ms: 15000
     upstream-read-timeout-ms: 30000
+    chapter-prefetch-size: 30
+    prefetch-executor-core-size: 2
+    prefetch-executor-max-size: 2
+    prefetch-executor-queue-capacity: 256
+    prefetch-executor-keep-alive-seconds: 60
     chapter-cache-max-entries: 2000
-    chapter-cache-ttl-ms: 1800000
+    chapter-cache-ttl-ms: 600000
     chapter-negative-cache-ttl-ms: 600000
     chapter-include-raw-content: false
     search-cache-max-entries: 256
@@ -52,7 +54,7 @@ fq:
     auto-restart-min-interval-ms: 120000
     auto-restart-force-halt-after-ms: 10000
     auto-restart-self-heal-enabled: true
-    auto-restart-self-heal-cooldown-ms: 120000
+    auto-restart-self-heal-cooldown-ms: 180000
   api:
     base-url: "https://api5-normal-sinfonlineb.fqnovel.com"
     user-agent: "com.dragon.read.oversea.gp/68132 (Linux; U; Android 13; zh_CN; Sirius; Build/V417IR;tt-ok/3.12.13.4-tiktok)"

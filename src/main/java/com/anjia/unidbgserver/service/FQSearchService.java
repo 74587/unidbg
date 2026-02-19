@@ -5,6 +5,8 @@ import com.anjia.unidbgserver.config.FQDownloadProperties;
 import com.anjia.unidbgserver.constants.FQConstants;
 import com.anjia.unidbgserver.dto.*;
 import com.anjia.unidbgserver.utils.FQApiUtils;
+import com.anjia.unidbgserver.utils.FQDirectoryResponseTransformer;
+import com.anjia.unidbgserver.utils.FQSearchResponseParser;
 import com.anjia.unidbgserver.utils.GzipUtils;
 import com.anjia.unidbgserver.utils.LocalCacheFactory;
 import com.anjia.unidbgserver.utils.ProcessLifecycle;
@@ -20,9 +22,6 @@ import org.springframework.web.client.RestTemplate;
 import javax.annotation.PostConstruct;
 import javax.annotation.Resource;
 import java.net.URI;
-import java.time.Instant;
-import java.time.ZoneId;
-import java.time.format.DateTimeFormatter;
 import java.util.*;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.CompletableFuture;
@@ -36,9 +35,6 @@ import java.util.concurrent.Executor;
 @Slf4j
 @Service
 public class FQSearchService {
-
-    private static final DateTimeFormatter CHAPTER_TIME_FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
-    private static final ZoneId SYSTEM_ZONE_ID = ZoneId.systemDefault();
 
     @Resource(name = "fqEncryptWorker")
     private FQEncryptServiceWorker fqEncryptServiceWorker;
@@ -104,29 +100,6 @@ public class FQSearchService {
         if (value == null) return "";
         if (value.length() <= maxLen) return value;
         return value.substring(0, Math.max(0, maxLen)) + "...";
-    }
-
-    private static Boolean boolFromNode(JsonNode node) {
-        if (node == null || node.isMissingNode() || node.isNull()) {
-            return null;
-        }
-        if (node.isBoolean()) {
-            return node.booleanValue();
-        }
-        if (node.isNumber()) {
-            return node.intValue() != 0;
-        }
-        String s = node.asText("").trim();
-        if (s.isEmpty() || "null".equalsIgnoreCase(s)) {
-            return null;
-        }
-        if ("1".equals(s) || "true".equalsIgnoreCase(s)) {
-            return true;
-        }
-        if ("0".equals(s) || "false".equalsIgnoreCase(s)) {
-            return false;
-        }
-        return null;
     }
 
     private static boolean hasBooks(FQNovelResponse<FQSearchResponse> response) {
@@ -569,7 +542,7 @@ public class FQSearchService {
             ResponseEntity<byte[]> response = restTemplate.exchange(uri, HttpMethod.GET, entity, byte[].class);
 
             // 解压缩 GZIP 响应体
-            String responseBody = GzipUtils.decompressGzipResponse(response.getBody());
+            String responseBody = GzipUtils.decodeUpstreamResponse(response);
 
             // 解析响应
             JsonNode jsonResponse = objectMapper.readTree(responseBody);
@@ -584,7 +557,7 @@ public class FQSearchService {
                 }
             }
 
-            int tabType = searchRequest.getTabType(); // 从请求获取需要的tab_type
+            int tabType = searchRequest.getTabType() != null ? searchRequest.getTabType() : 1;
             FQSearchResponse searchResponse = parseSearchResponse(jsonResponse, tabType);
 
             // 兜底：如果 parseSearchResponse 没取到 search_id，再做一次深度提取（含 root/data/log_pb 等）
@@ -726,7 +699,7 @@ public class FQSearchService {
             ResponseEntity<byte[]> response = restTemplate.exchange(fullUrl, HttpMethod.GET, entity, byte[].class);
 
             // 解压缩 GZIP 响应体
-            String responseBody = GzipUtils.decompressGzipResponse(response.getBody());
+            String responseBody = GzipUtils.decodeUpstreamResponse(response);
 
             JsonNode rootNode = objectMapper.readTree(responseBody);
             if (rootNode.has("code")) {
@@ -756,10 +729,10 @@ public class FQSearchService {
             }
 
             if (Boolean.TRUE.equals(directoryRequest.getMinimalResponse())) {
-                trimDirectoryResponse(directoryResponse);
+                FQDirectoryResponseTransformer.trimForMinimalResponse(directoryResponse);
             } else {
                 // 增强章节列表数据
-                enhanceChapterList(directoryResponse);
+                FQDirectoryResponseTransformer.enhanceChapterList(directoryResponse);
             }
 
             return FQNovelResponse.success(directoryResponse);
@@ -772,296 +745,10 @@ public class FQSearchService {
     }
 
     /**
-     * 增强章节列表数据
-     * 添加章节序号、格式化时间、最新章节标记等
-     *
-     * @param directoryResponse 目录响应对象
-     */
-    private void enhanceChapterList(FQDirectoryResponse directoryResponse) {
-        if (directoryResponse == null || directoryResponse.getItemDataList() == null) {
-            return;
-        }
-
-        List<FQDirectoryResponse.ItemData> itemDataList = directoryResponse.getItemDataList();
-        int totalChapters = itemDataList.size();
-
-        for (int i = 0; i < totalChapters; i++) {
-            FQDirectoryResponse.ItemData item = itemDataList.get(i);
-            
-            // 设置章节序号（从1开始）
-            item.setChapterIndex(i + 1);
-            
-            // 标记最新章节
-            item.setIsLatest(i == totalChapters - 1);
-            
-            // 格式化首次通过时间
-            if (item.getFirstPassTime() != null && item.getFirstPassTime() > 0) {
-                try {
-                    String timeStr = Instant.ofEpochSecond(item.getFirstPassTime())
-                        .atZone(SYSTEM_ZONE_ID)
-                        .format(CHAPTER_TIME_FORMATTER);
-                    item.setFirstPassTimeStr(timeStr);
-                } catch (Exception e) {
-                    log.warn("格式化时间失败 - timestamp: {}", item.getFirstPassTime(), e);
-                }
-            }
-            
-            // 设置排序序号（与序号相同）
-            if (item.getSortOrder() == null) {
-                item.setSortOrder(i + 1);
-            }
-            
-            if (item.getIsFree() == null) {
-                item.setIsFree(i < 5);
-            }
-        }
-        
-        log.debug("章节列表增强完成 - 总章节数: {}", totalChapters);
-    }
-
-    /**
-     * 目录响应裁剪：仅保留 Legado 目录必需字段
-     */
-    private void trimDirectoryResponse(FQDirectoryResponse directoryResponse) {
-        if (directoryResponse == null) {
-            return;
-        }
-
-        List<FQDirectoryResponse.ItemData> source = directoryResponse.getItemDataList();
-        List<FQDirectoryResponse.ItemData> minimal = new ArrayList<>();
-        if (source != null) {
-            minimal = new ArrayList<>(source.size());
-            for (FQDirectoryResponse.ItemData item : source) {
-                if (item == null) {
-                    continue;
-                }
-                String itemId = item.getItemId() != null ? item.getItemId().trim() : "";
-                if (itemId.isEmpty()) {
-                    continue;
-                }
-                FQDirectoryResponse.ItemData reduced = new FQDirectoryResponse.ItemData();
-                reduced.setItemId(itemId);
-                String title = item.getTitle() != null ? item.getTitle().trim() : "";
-                reduced.setTitle(title);
-                minimal.add(reduced);
-            }
-        }
-
-        directoryResponse.setItemDataList(minimal);
-        Integer upstreamSerialCount = directoryResponse.getSerialCount();
-        int finalSerialCount = minimal.size();
-        if (upstreamSerialCount != null && upstreamSerialCount > finalSerialCount) {
-            finalSerialCount = upstreamSerialCount;
-        }
-        directoryResponse.setSerialCount(finalSerialCount);
-        directoryResponse.setBookInfo(null);
-        directoryResponse.setCatalogData(null);
-        directoryResponse.setFieldCacheStatus(null);
-        directoryResponse.setBanRecover(null);
-        directoryResponse.setAdditionalItemDataList(null);
-
-        if (log.isDebugEnabled()) {
-            log.debug("目录响应裁剪完成 - 章节数: {}", minimal.size());
-        }
-    }
-
-    /**
-     * 解析搜索响应，根据 tabType 提取内容
+     * 兼容旧调用方，解析逻辑已下沉到独立解析器。
      */
     public static FQSearchResponse parseSearchResponse(JsonNode jsonResponse, int tabType) {
-        FQSearchResponse searchResponse = new FQSearchResponse();
-
-        // 兼容两种结构：
-        // 1) { "search_tabs": [...] }
-        // 2) { "code":0, "data": { "search_tabs": [...] } }
-        JsonNode dataNode = jsonResponse != null ? jsonResponse.path("data") : null;
-        JsonNode searchTabs = jsonResponse != null ? jsonResponse.get("search_tabs") : null;
-        if (searchTabs == null || !searchTabs.isArray()) {
-            searchTabs = dataNode != null ? dataNode.get("search_tabs") : null;
-        }
-        // 兼容驼峰：searchTabs
-        if (searchTabs == null || !searchTabs.isArray()) {
-            searchTabs = jsonResponse != null ? jsonResponse.get("searchTabs") : null;
-        }
-        if (searchTabs == null || !searchTabs.isArray()) {
-            searchTabs = dataNode != null ? dataNode.get("searchTabs") : null;
-        }
-
-        // search_tabs 是数组
-        boolean matchedTab = false;
-        if (searchTabs != null && searchTabs.isArray()) {
-            for (JsonNode tab : searchTabs) {
-                if (tab.has("tab_type") && tab.get("tab_type").asInt() == tabType) {
-                    matchedTab = true;
-                    List<FQSearchResponse.BookItem> books = new ArrayList<>();
-                    JsonNode tabData = tab.get("data");
-                    if (tabData != null && tabData.isArray()) {
-                        for (JsonNode cell : tabData) {
-                            JsonNode bookData = cell.get("book_data");
-                            if (bookData != null && bookData.isArray()) {
-                                for (JsonNode bookNode : bookData) {
-                                    books.add(parseBookItem(bookNode));
-                                }
-                            }
-                        }
-                    }
-                    // 某些场景下可能直接返回 tab.books
-                    JsonNode directBooks = tab.get("books");
-                    if ((books == null || books.isEmpty()) && directBooks != null && directBooks.isArray()) {
-                        for (JsonNode bookNode : directBooks) {
-                            books.add(parseBookItem(bookNode));
-                        }
-                    }
-                    searchResponse.setBooks(books);
-
-                    // 解析 tab 的其他字段
-                    searchResponse.setTotal(tab.path("total").asInt(books.size())); // 若没有 total 字段则用 books.size
-                    searchResponse.setHasMore(tab.path("has_more").asBoolean(false));
-                    String tabSearchId = tab.path("search_id").asText("");
-                    if (tabSearchId == null || tabSearchId.isEmpty()) {
-                        tabSearchId = tab.path("searchId").asText("");
-                    }
-                    if (tabSearchId == null || tabSearchId.isEmpty()) {
-                        tabSearchId = tab.path("search_id_str").asText("");
-                    }
-                    if (tabSearchId == null || tabSearchId.isEmpty()) {
-                        tabSearchId = dataNode != null ? dataNode.path("search_id").asText("") : "";
-                    }
-                    if (tabSearchId == null || tabSearchId.isEmpty()) {
-                        tabSearchId = dataNode != null ? dataNode.path("searchId").asText("") : "";
-                    }
-                    if (tabSearchId == null || tabSearchId.isEmpty()) {
-                        tabSearchId = dataNode != null ? dataNode.path("search_id_str").asText("") : "";
-                    }
-                    if (tabSearchId == null || tabSearchId.isEmpty()) {
-                        tabSearchId = jsonResponse != null ? jsonResponse.path("search_id").asText("") : "";
-                    }
-                    if (tabSearchId == null || tabSearchId.isEmpty()) {
-                        tabSearchId = jsonResponse != null ? jsonResponse.path("searchId").asText("") : "";
-                    }
-                    searchResponse.setSearchId(tabSearchId);
-
-                    break;
-                }
-            }
-        }
-
-        // 兜底：如果没有匹配到 tabType，但 tabs 中存在可用书籍数据，优先取第一个有书籍的 tab，避免误判为“无结果/风控”
-        if (!matchedTab && (searchResponse.getBooks() == null || searchResponse.getBooks().isEmpty()) && searchTabs != null && searchTabs.isArray()) {
-            for (JsonNode tab : searchTabs) {
-                List<FQSearchResponse.BookItem> books = new ArrayList<>();
-
-                JsonNode tabData = tab.get("data");
-                if (tabData != null && tabData.isArray()) {
-                    for (JsonNode cell : tabData) {
-                        JsonNode bookData = cell.get("book_data");
-                        if (bookData != null && bookData.isArray()) {
-                            for (JsonNode bookNode : bookData) {
-                                books.add(parseBookItem(bookNode));
-                            }
-                        }
-                    }
-                }
-                JsonNode directBooks = tab.get("books");
-                if (books.isEmpty() && directBooks != null && directBooks.isArray()) {
-                    for (JsonNode bookNode : directBooks) {
-                        books.add(parseBookItem(bookNode));
-                    }
-                }
-
-                if (!books.isEmpty()) {
-                    searchResponse.setBooks(books);
-                    if (searchResponse.getTotal() == null) {
-                        searchResponse.setTotal(tab.path("total").asInt(books.size()));
-                    }
-                    if (searchResponse.getHasMore() == null) {
-                        Boolean hm = boolFromNode(tab.path("has_more"));
-                        searchResponse.setHasMore(Boolean.TRUE.equals(hm));
-                    }
-                    if (isBlank(searchResponse.getSearchId())) {
-                        String tabSearchId = firstNonBlank(
-                            tab.path("search_id").asText(""),
-                            tab.path("searchId").asText(""),
-                            tab.path("search_id_str").asText("")
-                        );
-                        searchResponse.setSearchId(tabSearchId);
-                    }
-                    break;
-                }
-            }
-        }
-
-        // 兜底：部分接口/场景可能直接返回 data.books（没有 search_tabs），避免解析不到 books 导致误判为“无结果/风控”
-        if (searchResponse.getBooks() == null || searchResponse.getBooks().isEmpty()) {
-            JsonNode booksNode = null;
-            if (dataNode != null && dataNode.path("books").isArray()) {
-                booksNode = dataNode.path("books");
-            } else if (jsonResponse != null && jsonResponse.path("books").isArray()) {
-                booksNode = jsonResponse.path("books");
-            }
-
-            if (booksNode != null && booksNode.isArray()) {
-                List<FQSearchResponse.BookItem> books = new ArrayList<>();
-                for (JsonNode bookNode : booksNode) {
-                    books.add(parseBookItem(bookNode));
-                }
-                searchResponse.setBooks(books);
-
-                if (searchResponse.getTotal() == null) {
-                    int total = dataNode != null ? dataNode.path("total").asInt(books.size()) : books.size();
-                    searchResponse.setTotal(total);
-                }
-                if (searchResponse.getHasMore() == null) {
-                    Boolean hasMore = null;
-                    if (dataNode != null) {
-                        hasMore = boolFromNode(dataNode.path("has_more"));
-                        if (hasMore == null) {
-                            hasMore = boolFromNode(dataNode.path("hasMore"));
-                        }
-                    }
-                    searchResponse.setHasMore(Boolean.TRUE.equals(hasMore));
-                }
-            }
-        }
-
-        // 如果没命中 tab，也尽量把 search_id 填上（便于外部继续翻页）
-        if (isBlank(searchResponse.getSearchId())) {
-            String fallback = firstNonBlank(
-                dataNode != null ? dataNode.path("search_id").asText("") : "",
-                dataNode != null ? dataNode.path("searchId").asText("") : "",
-                jsonResponse != null ? jsonResponse.path("search_id").asText("") : "",
-                jsonResponse != null ? jsonResponse.path("searchId").asText("") : ""
-            );
-            searchResponse.setSearchId(fallback);
-        }
-        return searchResponse;
-    }
-
-    /**
-     * 解析书籍项目（精简映射，仅保留当前接口输出会用到的字段）
-     */
-    private static FQSearchResponse.BookItem parseBookItem(JsonNode bookNode) {
-        FQSearchResponse.BookItem book = new FQSearchResponse.BookItem();
-        if (bookNode == null || bookNode.isMissingNode() || bookNode.isNull()) {
-            return book;
-        }
-
-        book.setBookId(bookNode.path("book_id").asText(""));
-        book.setBookName(bookNode.path("book_name").asText(""));
-        book.setAuthor(bookNode.path("author").asText(""));
-        book.setDescription(firstNonBlank(
-            bookNode.path("abstract").asText(""),
-            bookNode.path("book_abstract_v2").asText("")
-        ));
-        book.setCoverUrl(firstNonBlank(
-            bookNode.path("thumb_url").asText(""),
-            bookNode.path("detail_page_thumb_url").asText("")
-        ));
-        book.setLastChapterTitle(bookNode.path("last_chapter_title").asText(""));
-        book.setCategory(bookNode.path("category").asText(""));
-        book.setWordCount(bookNode.path("word_number").asLong(0L));
-
-        return book;
+        return FQSearchResponseParser.parseSearchResponse(jsonResponse, tabType);
     }
 
 }

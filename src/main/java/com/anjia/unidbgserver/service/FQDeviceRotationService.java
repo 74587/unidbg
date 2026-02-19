@@ -8,6 +8,7 @@ import com.anjia.unidbgserver.dto.FqVariable;
 import com.anjia.unidbgserver.utils.FQApiUtils;
 import com.anjia.unidbgserver.utils.GzipUtils;
 import com.anjia.unidbgserver.utils.CookieUtils;
+import com.anjia.unidbgserver.utils.FQSearchResponseParser;
 import com.anjia.unidbgserver.utils.SearchIdExtractor;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -198,7 +199,7 @@ public class FQDeviceRotationService {
             }
 
             // 兼容 search_tabs / data.books 等结构
-            FQSearchResponse parsed = FQSearchService.parseSearchResponse(root, 1);
+            FQSearchResponse parsed = FQSearchResponseParser.parseSearchResponse(root, 1);
             if (parsed != null && parsed.getBooks() != null && !parsed.getBooks().isEmpty()) {
                 return true;
             }
