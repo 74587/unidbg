@@ -56,7 +56,7 @@ public final class FQSearchResponseParser {
 
                     searchResponse.setTotal(tab.path("total").asInt(books.size()));
                     searchResponse.setHasMore(tab.path("has_more").asBoolean(false));
-                    String tabSearchId = firstNonBlank(
+                    String tabSearchId = Texts.firstNonBlank(
                         tab.path("search_id").asText(""),
                         tab.path("searchId").asText(""),
                         tab.path("search_id_str").asText(""),
@@ -103,8 +103,8 @@ public final class FQSearchResponseParser {
                         Boolean hm = boolFromNode(tab.path("has_more"));
                         searchResponse.setHasMore(Boolean.TRUE.equals(hm));
                     }
-                    if (isBlank(searchResponse.getSearchId())) {
-                        String tabSearchId = firstNonBlank(
+                    if (Texts.isBlank(searchResponse.getSearchId())) {
+                        String tabSearchId = Texts.firstNonBlank(
                             tab.path("search_id").asText(""),
                             tab.path("searchId").asText(""),
                             tab.path("search_id_str").asText("")
@@ -148,8 +148,8 @@ public final class FQSearchResponseParser {
             }
         }
 
-        if (isBlank(searchResponse.getSearchId())) {
-            String fallback = firstNonBlank(
+        if (Texts.isBlank(searchResponse.getSearchId())) {
+            String fallback = Texts.firstNonBlank(
                 dataNode != null ? dataNode.path("search_id").asText("") : "",
                 dataNode != null ? dataNode.path("searchId").asText("") : "",
                 jsonResponse != null ? jsonResponse.path("search_id").asText("") : "",
@@ -169,11 +169,11 @@ public final class FQSearchResponseParser {
         book.setBookId(bookNode.path("book_id").asText(""));
         book.setBookName(bookNode.path("book_name").asText(""));
         book.setAuthor(bookNode.path("author").asText(""));
-        book.setDescription(firstNonBlank(
+        book.setDescription(Texts.firstNonBlank(
             bookNode.path("abstract").asText(""),
             bookNode.path("book_abstract_v2").asText("")
         ));
-        book.setCoverUrl(firstNonBlank(
+        book.setCoverUrl(Texts.firstNonBlank(
             bookNode.path("thumb_url").asText(""),
             bookNode.path("detail_page_thumb_url").asText("")
         ));
@@ -182,22 +182,6 @@ public final class FQSearchResponseParser {
         book.setWordCount(bookNode.path("word_number").asLong(0L));
 
         return book;
-    }
-
-    private static boolean isBlank(String value) {
-        return value == null || value.trim().isEmpty();
-    }
-
-    private static String firstNonBlank(String... values) {
-        if (values == null) {
-            return "";
-        }
-        for (String value : values) {
-            if (!isBlank(value)) {
-                return value;
-            }
-        }
-        return "";
     }
 
     private static Boolean boolFromNode(JsonNode node) {

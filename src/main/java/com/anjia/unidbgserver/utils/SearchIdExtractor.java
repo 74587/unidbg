@@ -18,12 +18,12 @@ public final class SearchIdExtractor {
             return "";
         }
 
-        String direct = firstNonBlank(
+        String direct = Texts.firstNonBlank(
             root.path("search_id").asText(""),
             root.path("searchId").asText(""),
             root.path("search_id_str").asText("")
         );
-        if (!isBlank(direct)) {
+        if (Texts.hasText(direct)) {
             return direct;
         }
 
@@ -36,12 +36,12 @@ public final class SearchIdExtractor {
             }
 
             if (node.isObject()) {
-                String found = firstNonBlank(
+                String found = Texts.firstNonBlank(
                     node.path("search_id").asText(""),
                     node.path("searchId").asText(""),
                     node.path("search_id_str").asText("")
                 );
-                if (!isBlank(found)) {
+                if (Texts.hasText(found)) {
                     return found;
                 }
                 node.fields().forEachRemaining(e -> stack.push(e.getValue()));
@@ -52,22 +52,6 @@ public final class SearchIdExtractor {
             }
         }
 
-        return "";
-    }
-
-    private static boolean isBlank(String value) {
-        return value == null || value.trim().isEmpty();
-    }
-
-    private static String firstNonBlank(String... values) {
-        if (values == null) {
-            return "";
-        }
-        for (String value : values) {
-            if (!isBlank(value)) {
-                return value;
-            }
-        }
         return "";
     }
 }

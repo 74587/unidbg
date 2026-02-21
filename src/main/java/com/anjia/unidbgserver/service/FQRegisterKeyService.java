@@ -243,7 +243,9 @@ public class FQRegisterKeyService {
             currentRegisterKey = null;
             currentRegisterKeyExpiresAtMs = 0L;
         }
-        log.info("registerkey当前键已失效（保留历史keyver缓存）");
+        if (log.isDebugEnabled()) {
+            log.debug("registerkey当前键已失效");
+        }
     }
 
     /**

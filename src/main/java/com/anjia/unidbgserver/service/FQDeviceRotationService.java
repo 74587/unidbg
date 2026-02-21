@@ -10,6 +10,7 @@ import com.anjia.unidbgserver.utils.GzipUtils;
 import com.anjia.unidbgserver.utils.CookieUtils;
 import com.anjia.unidbgserver.utils.FQSearchResponseParser;
 import com.anjia.unidbgserver.utils.SearchIdExtractor;
+import com.anjia.unidbgserver.utils.Texts;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
@@ -160,8 +161,7 @@ public class FQDeviceRotationService {
             searchRequestEnricher.enrich(searchRequest);
 
             FqVariable var = new FqVariable(fqApiProperties);
-            String base = fqApiUtils.getBaseUrl();
-            String url = base.replace("api5-normal-sinfonlineb", "api5-normal-sinfonlinec")
+            String url = fqApiUtils.getSearchApiBaseUrl()
                 + "/reading/bookapi/search/tab/v";
             Map<String, String> params = fqApiUtils.buildSearchParams(var, searchRequest);
             String fullUrl = fqApiUtils.buildUrlWithParams(url, params);
@@ -194,7 +194,7 @@ public class FQDeviceRotationService {
                 return false;
             }
             String searchId = SearchIdExtractor.deepFind(root);
-            if (searchId != null && !searchId.isEmpty()) {
+            if (Texts.hasText(searchId)) {
                 return true;
             }
 

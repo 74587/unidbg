@@ -2,6 +2,8 @@ package com.anjia.unidbgserver.service;
 
 import com.anjia.unidbgserver.dto.FQNovelChapterInfo;
 import com.anjia.unidbgserver.config.DbUrlPresentCondition;
+import com.anjia.unidbgserver.utils.ChapterCacheValidator;
+import com.anjia.unidbgserver.utils.Texts;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -60,7 +62,7 @@ public class PgChapterCacheService {
     }
 
     public FQNovelChapterInfo getChapter(String bookId, String chapterId) {
-        if (!hasText(bookId) || !hasText(chapterId)) {
+        if (!Texts.hasText(bookId) || !Texts.hasText(chapterId)) {
             return null;
         }
 
@@ -77,14 +79,13 @@ public class PgChapterCacheService {
                 rs -> rs.next() ? rs.getString(1) : null
             );
 
-            if (!hasText(payload)) {
+            if (!Texts.hasText(payload)) {
                 return null;
             }
 
             try {
                 FQNovelChapterInfo chapterInfo = objectMapper.readValue(payload, FQNovelChapterInfo.class);
-                if (!normalizeIdentityAndCheck(normalizedBookId, normalizedChapterId, chapterInfo)
-                    || !isContentValid(chapterInfo)) {
+                if (!ChapterCacheValidator.isCacheable(normalizedBookId, normalizedChapterId, chapterInfo)) {
                     deleteQuietly(normalizedBookId, normalizedChapterId);
                     return null;
                 }
@@ -105,14 +106,14 @@ public class PgChapterCacheService {
      * 仅在章节内容有效时写入缓存。
      */
     public void saveChapterIfValid(String bookId, String chapterId, FQNovelChapterInfo chapterInfo) {
-        if (!hasText(bookId) || !hasText(chapterId) || chapterInfo == null) {
+        if (!Texts.hasText(bookId) || !Texts.hasText(chapterId) || chapterInfo == null) {
             return;
         }
 
         String normalizedBookId = bookId.trim();
         String normalizedChapterId = chapterId.trim();
 
-        if (!normalizeIdentityAndCheck(normalizedBookId, normalizedChapterId, chapterInfo) || !isContentValid(chapterInfo)) {
+        if (!ChapterCacheValidator.isCacheable(normalizedBookId, normalizedChapterId, chapterInfo)) {
             if (log.isDebugEnabled()) {
                 log.debug("跳过写入 PostgreSQL 缓存（章节数据无效）- bookId: {}, chapterId: {}", normalizedBookId, normalizedChapterId);
             }
@@ -135,33 +136,4 @@ public class PgChapterCacheService {
         }
     }
 
-    private static boolean normalizeIdentityAndCheck(String bookId, String chapterId, FQNovelChapterInfo chapterInfo) {
-        if (chapterInfo == null) {
-            return false;
-        }
-
-        if (!hasText(chapterInfo.getBookId())) {
-            chapterInfo.setBookId(bookId);
-        } else if (!bookId.equals(chapterInfo.getBookId().trim())) {
-            return false;
-        }
-
-        if (!hasText(chapterInfo.getChapterId())) {
-            chapterInfo.setChapterId(chapterId);
-        } else if (!chapterId.equals(chapterInfo.getChapterId().trim())) {
-            return false;
-        }
-
-        return true;
-    }
-
-    private static boolean isContentValid(FQNovelChapterInfo chapterInfo) {
-        return chapterInfo != null
-            && hasText(chapterInfo.getTitle())
-            && hasText(chapterInfo.getTxtContent());
-    }
-
-    private static boolean hasText(String value) {
-        return value != null && !value.trim().isEmpty();
-    }
 }

@@ -316,10 +316,6 @@ public Map<String, String> buildSearchParams(FqVariable var, FQSearchRequest sea
         return Boolean.TRUE.equals(value) ? "1" : "0";
     }
 
-    private static boolean hasText(String value) {
-        return value != null && !value.trim().isEmpty();
-    }
-
     /**
      * 构建目录API参数
      * 在通用参数基础上添加目录特定参数
@@ -350,13 +346,13 @@ public Map<String, String> buildSearchParams(FqVariable var, FQSearchRequest sea
         params.put("need_version", String.valueOf(finalNeedVersion));
 
         // 可选MD5参数
-        if (hasText(directoryRequest.getItemDataListMd5())) {
+        if (Texts.hasText(directoryRequest.getItemDataListMd5())) {
             params.put("item_data_list_md5", directoryRequest.getItemDataListMd5().trim());
         }
-        if (hasText(directoryRequest.getCatalogDataMd5())) {
+        if (Texts.hasText(directoryRequest.getCatalogDataMd5())) {
             params.put("catalog_data_md5", directoryRequest.getCatalogDataMd5().trim());
         }
-        if (hasText(directoryRequest.getBookInfoMd5())) {
+        if (Texts.hasText(directoryRequest.getBookInfoMd5())) {
             params.put("book_info_md5", directoryRequest.getBookInfoMd5().trim());
         }
 
@@ -370,5 +366,19 @@ public Map<String, String> buildSearchParams(FqVariable var, FQSearchRequest sea
      */
     public String getBaseUrl() {
         return fqApiProperties.getBaseUrl();
+    }
+
+    /**
+     * 搜索/目录相关接口要求使用 c 域名，统一在此处转换，避免业务层散落 replace 逻辑。
+     */
+    public String getSearchApiBaseUrl() {
+        return normalizeSearchApiBaseUrl(fqApiProperties.getBaseUrl());
+    }
+
+    private static String normalizeSearchApiBaseUrl(String baseUrl) {
+        if (!Texts.hasText(baseUrl)) {
+            return "";
+        }
+        return baseUrl.replace("api5-normal-sinfonlineb", "api5-normal-sinfonlinec");
     }
 }

@@ -11,10 +11,12 @@ import com.anjia.unidbgserver.utils.GzipUtils;
 import com.anjia.unidbgserver.utils.LocalCacheFactory;
 import com.anjia.unidbgserver.utils.ProcessLifecycle;
 import com.anjia.unidbgserver.utils.SearchIdExtractor;
+import com.anjia.unidbgserver.utils.Texts;
 import com.github.benmanes.caffeine.cache.Cache;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.BeanUtils;
 import org.springframework.http.*;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestTemplate;
@@ -27,6 +29,8 @@ import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executor;
+import java.util.function.Predicate;
+import java.util.function.Supplier;
 
 /**
  * FQ书籍搜索和目录服务
@@ -82,18 +86,6 @@ public class FQSearchService {
         long directoryTtl = Math.max(0L, downloadProperties.getApiDirectoryCacheTtlMs());
         this.searchCache = LocalCacheFactory.build(searchMax, searchTtl);
         this.directoryApiCache = LocalCacheFactory.build(directoryMax, directoryTtl);
-    }
-
-    private static boolean isBlank(String value) {
-        return value == null || value.trim().isEmpty();
-    }
-
-    private static String firstNonBlank(String... values) {
-        if (values == null) return "";
-        for (String value : values) {
-            if (!isBlank(value)) return value;
-        }
-        return "";
     }
 
     private static String snippet(String value, int maxLen) {
@@ -199,6 +191,91 @@ public class FQSearchService {
             && response.getData() != null;
     }
 
+    private static final class UpstreamGetResult {
+        private final ResponseEntity<byte[]> response;
+        private final String responseBody;
+        private final JsonNode jsonBody;
+
+        private UpstreamGetResult(ResponseEntity<byte[]> response, String responseBody, JsonNode jsonBody) {
+            this.response = response;
+            this.responseBody = responseBody;
+            this.jsonBody = jsonBody;
+        }
+    }
+
+    private UpstreamGetResult executeSignedGet(String fullUrl, Map<String, String> headers, String signatureFailLog) throws Exception {
+        Map<String, String> signedHeaders = fqEncryptServiceWorker.generateSignatureHeadersSync(fullUrl, headers);
+        if (signedHeaders == null || signedHeaders.isEmpty()) {
+            log.error("{} - url: {}", signatureFailLog, fullUrl);
+            return null;
+        }
+
+        HttpHeaders httpHeaders = new HttpHeaders();
+        headers.forEach(httpHeaders::set);
+        signedHeaders.forEach(httpHeaders::set);
+
+        HttpEntity<String> entity = new HttpEntity<>(httpHeaders);
+        upstreamRateLimiter.acquire();
+        ResponseEntity<byte[]> response = restTemplate.exchange(URI.create(fullUrl), HttpMethod.GET, entity, byte[].class);
+        String responseBody = GzipUtils.decodeUpstreamResponse(response);
+        JsonNode jsonBody = objectMapper.readTree(responseBody);
+        return new UpstreamGetResult(response, responseBody, jsonBody);
+    }
+
+    private <T> CompletableFuture<FQNovelResponse<T>> loadWithRequestCache(
+        String cacheKey,
+        Cache<String, T> cache,
+        ConcurrentHashMap<String, CompletableFuture<FQNovelResponse<T>>> inflight,
+        Supplier<FQNovelResponse<T>> loader,
+        Predicate<FQNovelResponse<T>> cacheablePredicate,
+        Runnable cacheHitHook,
+        String cacheLabel
+    ) {
+        if (cacheKey == null) {
+            return CompletableFuture.supplyAsync(loader, taskExecutor);
+        }
+
+        T cached = cache.getIfPresent(cacheKey);
+        if (cached != null) {
+            if (cacheHitHook != null) {
+                cacheHitHook.run();
+            }
+            if (log.isDebugEnabled()) {
+                log.debug("{}缓存命中 - key: {}", cacheLabel, cacheKey);
+            }
+            return CompletableFuture.completedFuture(FQNovelResponse.success(cached));
+        }
+
+        CompletableFuture<FQNovelResponse<T>> existing = inflight.get(cacheKey);
+        if (existing != null) {
+            return existing;
+        }
+
+        CompletableFuture<FQNovelResponse<T>> created = new CompletableFuture<>();
+        existing = inflight.putIfAbsent(cacheKey, created);
+        if (existing != null) {
+            return existing;
+        }
+
+        CompletableFuture.supplyAsync(loader, taskExecutor)
+            .whenComplete((response, ex) -> {
+                try {
+                    if (ex != null) {
+                        created.completeExceptionally(ex);
+                        return;
+                    }
+                    if (cacheablePredicate != null && cacheablePredicate.test(response)) {
+                        cache.put(cacheKey, response.getData());
+                    }
+                    created.complete(response);
+                } finally {
+                    inflight.remove(cacheKey, created);
+                }
+            });
+
+        return created;
+    }
+
     /**
      * 搜索书籍 - 增强版，支持两阶段搜索
      *
@@ -211,47 +288,15 @@ public class FQSearchService {
         }
 
         String cacheKey = buildSearchCacheKey(searchRequest);
-        if (cacheKey == null) {
-            return CompletableFuture.supplyAsync(() -> searchBooksEnhancedInternal(searchRequest), taskExecutor);
-        }
-
-        FQSearchResponse cached = searchCache.getIfPresent(cacheKey);
-        if (cached != null) {
-            autoRestartService.recordSuccess();
-            if (log.isDebugEnabled()) {
-                log.debug("搜索缓存命中 - key: {}", cacheKey);
-            }
-            return CompletableFuture.completedFuture(FQNovelResponse.success(cached));
-        }
-
-        CompletableFuture<FQNovelResponse<FQSearchResponse>> existing = inflightSearch.get(cacheKey);
-        if (existing != null) {
-            return existing;
-        }
-
-        CompletableFuture<FQNovelResponse<FQSearchResponse>> created = new CompletableFuture<>();
-        existing = inflightSearch.putIfAbsent(cacheKey, created);
-        if (existing != null) {
-            return existing;
-        }
-
-        CompletableFuture.supplyAsync(() -> searchBooksEnhancedInternal(searchRequest), taskExecutor)
-            .whenComplete((response, ex) -> {
-                try {
-                    if (ex != null) {
-                        created.completeExceptionally(ex);
-                        return;
-                    }
-                    if (isSearchCacheable(response)) {
-                        searchCache.put(cacheKey, response.getData());
-                    }
-                    created.complete(response);
-                } finally {
-                    inflightSearch.remove(cacheKey, created);
-                }
-            });
-
-        return created;
+        return loadWithRequestCache(
+            cacheKey,
+            searchCache,
+            inflightSearch,
+            () -> searchBooksEnhancedInternal(searchRequest),
+            FQSearchService::isSearchCacheable,
+            autoRestartService::recordSuccess,
+            "搜索"
+        );
     }
 
     private FQNovelResponse<FQSearchResponse> searchBooksEnhancedInternal(FQSearchRequest searchRequest) {
@@ -267,7 +312,7 @@ public class FQSearchService {
             searchRequestEnricher.enrich(searchRequest);
 
             // 如果用户已经提供了search_id，直接进行搜索
-            if (searchRequest.getSearchId() != null && !searchRequest.getSearchId().trim().isEmpty()) {
+            if (Texts.hasText(searchRequest.getSearchId())) {
                 FQNovelResponse<FQSearchResponse> response = performSearchWithId(searchRequest);
                 if (response != null && response.getCode() != null && response.getCode() == 0) {
                     autoRestartService.recordSuccess();
@@ -308,7 +353,7 @@ public class FQSearchService {
             }
 
             String firstSearchId = extractSearchId(firstResponse);
-            if (isBlank(firstSearchId)) {
+            if (Texts.isBlank(firstSearchId)) {
                 // 如果第一阶段已返回可用书籍列表（即使缺 search_id），直接返回，避免误判为“不可用”
                 if (hasBooks(firstResponse)) {
                     log.info("第一阶段未返回search_id，但已返回书籍结果，跳过第二阶段");
@@ -338,7 +383,7 @@ public class FQSearchService {
                         }
 
                         candidateSearchId = extractSearchId(candidate);
-                        if (!isBlank(candidateSearchId)) {
+                        if (Texts.hasText(candidateSearchId)) {
                             firstResponse = candidate;
                             firstSearchId = candidateSearchId;
                             break;
@@ -350,12 +395,12 @@ public class FQSearchService {
                         }
                     }
 
-                    if (!isBlank(firstSearchId)) {
+                    if (Texts.hasText(firstSearchId)) {
                         break;
                     }
                 }
 
-                if (isBlank(firstSearchId)) {
+                if (Texts.isBlank(firstSearchId)) {
                     log.warn("第一阶段搜索未返回search_id（可能风控/上游异常），建议稍后重试");
                     autoRestartService.recordFailure("SEARCH_NO_SEARCH_ID");
                     return FQNovelResponse.error("上游未返回search_id（可能风控/上游异常），请稍后重试");
@@ -416,9 +461,7 @@ public class FQSearchService {
         firstRequest.setLastSearchPageInterval(0); // 第一次调用为0
 
         // 确保passback与offset相同
-        if (firstRequest.getPassback() == null) {
-            firstRequest.setPassback(firstRequest.getOffset());
-        }
+        ensurePassback(firstRequest);
 
         return firstRequest;
     }
@@ -438,9 +481,7 @@ public class FQSearchService {
         // 不设置client_ab_info（在buildSearchParams中会被跳过）
 
         // 确保passback与offset相同
-        if (secondRequest.getPassback() == null) {
-            secondRequest.setPassback(secondRequest.getOffset());
-        }
+        ensurePassback(secondRequest);
 
         return secondRequest;
     }
@@ -449,45 +490,13 @@ public class FQSearchService {
      * 复制基本参数
      */
     private void copyBasicParameters(FQSearchRequest source, FQSearchRequest target) {
-        target.setQuery(source.getQuery());
-        target.setOffset(source.getOffset());
-        target.setCount(source.getCount());
-        target.setTabType(source.getTabType());
-        target.setPassback(source.getPassback());
-        target.setBookshelfSearchPlan(source.getBookshelfSearchPlan());
-        target.setFromRs(source.getFromRs());
-        target.setUserIsLogin(source.getUserIsLogin());
-        target.setBookstoreTab(source.getBookstoreTab());
-        target.setSearchSource(source.getSearchSource());
-        target.setClickedContent(source.getClickedContent());
-        target.setSearchSourceId(source.getSearchSourceId());
-        target.setUseLynx(source.getUseLynx());
-        target.setUseCorrect(source.getUseCorrect());
-        target.setTabName(source.getTabName());
-        target.setClientAbInfo(source.getClientAbInfo());
-        target.setLineWordsNum(source.getLineWordsNum());
-        target.setLastConsumeInterval(source.getLastConsumeInterval());
-        target.setPadColumnCover(source.getPadColumnCover());
-        target.setKlinkEgdi(source.getKlinkEgdi());
-        target.setNormalSessionId(source.getNormalSessionId());
-        target.setColdStartSessionId(source.getColdStartSessionId());
-        target.setCharging(source.getCharging());
-        target.setScreenBrightness(source.getScreenBrightness());
-        target.setBatteryPct(source.getBatteryPct());
-        target.setDownSpeed(source.getDownSpeed());
-        target.setSysDarkMode(source.getSysDarkMode());
-        target.setAppDarkMode(source.getAppDarkMode());
-        target.setFontScale(source.getFontScale());
-        target.setIsAndroidPadScreen(source.getIsAndroidPadScreen());
-        target.setNetworkType(source.getNetworkType());
-        target.setRomVersion(source.getRomVersion());
-        target.setCurrentVolume(source.getCurrentVolume());
-        target.setCdid(source.getCdid());
-        target.setNeedPersonalRecommend(source.getNeedPersonalRecommend());
-        target.setPlayerSoLoad(source.getPlayerSoLoad());
-        target.setGender(source.getGender());
-        target.setComplianceStatus(source.getComplianceStatus());
-        target.setHarStatus(source.getHarStatus());
+        BeanUtils.copyProperties(source, target);
+    }
+
+    private static void ensurePassback(FQSearchRequest request) {
+        if (request != null && request.getPassback() == null) {
+            request.setPassback(request.getOffset());
+        }
     }
 
     /**
@@ -500,9 +509,7 @@ public class FQSearchService {
         searchRequestEnricher.enrich(searchRequest);
 
         // 确保passback与offset相同
-        if (searchRequest.getPassback() == null) {
-            searchRequest.setPassback(searchRequest.getOffset());
-        }
+        ensurePassback(searchRequest);
 
         return performSearchInternal(searchRequest);
     }
@@ -515,7 +522,7 @@ public class FQSearchService {
             FqVariable var = getDefaultFqVariable();
 
             // 构建搜索URL和参数
-            String url = fqApiUtils.getBaseUrl().replace("api5-normal-sinfonlineb", "api5-normal-sinfonlinec")
+            String url = fqApiUtils.getSearchApiBaseUrl()
                 + "/reading/bookapi/search/tab/v";
             Map<String, String> params = fqApiUtils.buildSearchParams(var, searchRequest);
             String fullUrl = fqApiUtils.buildUrlWithParams(url, params);
@@ -523,29 +530,14 @@ public class FQSearchService {
             // 构建请求头
             Map<String, String> headers = fqApiUtils.buildSearchHeaders();
 
-            // 生成签名
-            Map<String, String> signedHeaders = fqEncryptServiceWorker.generateSignatureHeadersSync(fullUrl, headers);
-            if (signedHeaders == null || signedHeaders.isEmpty()) {
-                log.error("签名生成失败，终止请求 - url: {}", fullUrl);
+            UpstreamGetResult upstream = executeSignedGet(fullUrl, headers, "签名生成失败，终止请求");
+            if (upstream == null) {
                 return FQNovelResponse.error("签名生成失败");
             }
 
-            // 发起API请求
-            HttpHeaders httpHeaders = new HttpHeaders();
-            headers.forEach(httpHeaders::set);
-            signedHeaders.forEach(httpHeaders::set);
-
-            HttpEntity<String> entity = new HttpEntity<>(httpHeaders);
-            URI uri = URI.create(fullUrl);
-
-            upstreamRateLimiter.acquire();
-            ResponseEntity<byte[]> response = restTemplate.exchange(uri, HttpMethod.GET, entity, byte[].class);
-
-            // 解压缩 GZIP 响应体
-            String responseBody = GzipUtils.decodeUpstreamResponse(response);
-
-            // 解析响应
-            JsonNode jsonResponse = objectMapper.readTree(responseBody);
+            ResponseEntity<byte[]> response = upstream.response;
+            String responseBody = upstream.responseBody;
+            JsonNode jsonResponse = upstream.jsonBody;
 
             // 上游如果有 code/message，优先按其判断是否成功
             if (jsonResponse.has("code")) {
@@ -558,31 +550,31 @@ public class FQSearchService {
             }
 
             int tabType = searchRequest.getTabType() != null ? searchRequest.getTabType() : 1;
-            FQSearchResponse searchResponse = parseSearchResponse(jsonResponse, tabType);
+            FQSearchResponse searchResponse = FQSearchResponseParser.parseSearchResponse(jsonResponse, tabType);
 
             // 兜底：如果 parseSearchResponse 没取到 search_id，再做一次深度提取（含 root/data/log_pb 等）
-            if (searchResponse != null && isBlank(searchResponse.getSearchId())) {
+            if (searchResponse != null && Texts.isBlank(searchResponse.getSearchId())) {
                 String fromBody = SearchIdExtractor.deepFind(jsonResponse);
-                if (!isBlank(fromBody)) {
+                if (Texts.hasText(fromBody)) {
                     searchResponse.setSearchId(fromBody);
                 }
             }
 
             // 兜底：部分情况下 search_id 可能在响应头里
-            if (searchResponse != null && isBlank(searchResponse.getSearchId())) {
-                String fromHeader = firstNonBlank(
+            if (searchResponse != null && Texts.isBlank(searchResponse.getSearchId())) {
+                String fromHeader = Texts.firstNonBlank(
                     response.getHeaders().getFirst("search_id"),
                     response.getHeaders().getFirst("search-id"),
                     response.getHeaders().getFirst("x-search-id"),
                     response.getHeaders().getFirst("x-fq-search-id")
                 );
-                if (!isBlank(fromHeader)) {
+                if (Texts.hasText(fromHeader)) {
                     searchResponse.setSearchId(fromHeader);
                 }
             }
 
             if (Boolean.TRUE.equals(searchRequest.getIsFirstEnterSearch())
-                && (searchResponse == null || isBlank(searchResponse.getSearchId()))
+                && (searchResponse == null || Texts.isBlank(searchResponse.getSearchId()))
                 && log.isDebugEnabled()) {
                 log.debug("第一阶段搜索未返回search_id，原始响应: {}", snippet(responseBody, 1200));
             }
@@ -596,7 +588,7 @@ public class FQSearchService {
     }
 
     private static boolean shouldRotate(String message) {
-        if (isBlank(message)) {
+        if (Texts.isBlank(message)) {
             return false;
         }
         String m = message.toLowerCase(Locale.ROOT);
@@ -619,46 +611,15 @@ public class FQSearchService {
         }
 
         String cacheKey = buildDirectoryCacheKey(directoryRequest);
-        if (cacheKey == null) {
-            return CompletableFuture.supplyAsync(() -> getBookDirectoryInternal(directoryRequest), taskExecutor);
-        }
-
-        FQDirectoryResponse cached = directoryApiCache.getIfPresent(cacheKey);
-        if (cached != null) {
-            if (log.isDebugEnabled()) {
-                log.debug("目录缓存命中 - key: {}", cacheKey);
-            }
-            return CompletableFuture.completedFuture(FQNovelResponse.success(cached));
-        }
-
-        CompletableFuture<FQNovelResponse<FQDirectoryResponse>> existing = inflightDirectory.get(cacheKey);
-        if (existing != null) {
-            return existing;
-        }
-
-        CompletableFuture<FQNovelResponse<FQDirectoryResponse>> created = new CompletableFuture<>();
-        existing = inflightDirectory.putIfAbsent(cacheKey, created);
-        if (existing != null) {
-            return existing;
-        }
-
-        CompletableFuture.supplyAsync(() -> getBookDirectoryInternal(directoryRequest), taskExecutor)
-            .whenComplete((response, ex) -> {
-                try {
-                    if (ex != null) {
-                        created.completeExceptionally(ex);
-                        return;
-                    }
-                    if (isDirectoryCacheable(response)) {
-                        directoryApiCache.put(cacheKey, response.getData());
-                    }
-                    created.complete(response);
-                } finally {
-                    inflightDirectory.remove(cacheKey, created);
-                }
-            });
-
-        return created;
+        return loadWithRequestCache(
+            cacheKey,
+            directoryApiCache,
+            inflightDirectory,
+            () -> getBookDirectoryInternal(directoryRequest),
+            FQSearchService::isDirectoryCacheable,
+            null,
+            "目录"
+        );
     }
 
     private FQNovelResponse<FQDirectoryResponse> getBookDirectoryInternal(FQDirectoryRequest directoryRequest) {
@@ -674,7 +635,7 @@ public class FQSearchService {
             FqVariable var = getDefaultFqVariable();
 
             // 构建目录URL和参数
-            String url = fqApiUtils.getBaseUrl().replace("api5-normal-sinfonlineb", "api5-normal-sinfonlinec")
+            String url = fqApiUtils.getSearchApiBaseUrl()
                 + "/reading/bookapi/directory/all_items/v";
             Map<String, String> params = fqApiUtils.buildDirectoryParams(var, directoryRequest);
             String fullUrl = fqApiUtils.buildUrlWithParams(url, params);
@@ -682,26 +643,13 @@ public class FQSearchService {
             // 构建请求头
             Map<String, String> headers = fqApiUtils.buildCommonHeaders();
 
-            // 生成签名
-            Map<String, String> signedHeaders = fqEncryptServiceWorker.generateSignatureHeadersSync(fullUrl, headers);
-            if (signedHeaders == null || signedHeaders.isEmpty()) {
-                log.error("签名生成失败，终止目录请求 - url: {}", fullUrl);
+            UpstreamGetResult upstream = executeSignedGet(fullUrl, headers, "签名生成失败，终止目录请求");
+            if (upstream == null) {
                 return FQNovelResponse.error("签名生成失败");
             }
 
-            // 发起API请求
-            HttpHeaders httpHeaders = new HttpHeaders();
-            headers.forEach(httpHeaders::set);
-            signedHeaders.forEach(httpHeaders::set);
-
-            HttpEntity<String> entity = new HttpEntity<>(httpHeaders);
-            upstreamRateLimiter.acquire();
-            ResponseEntity<byte[]> response = restTemplate.exchange(fullUrl, HttpMethod.GET, entity, byte[].class);
-
-            // 解压缩 GZIP 响应体
-            String responseBody = GzipUtils.decodeUpstreamResponse(response);
-
-            JsonNode rootNode = objectMapper.readTree(responseBody);
+            String responseBody = upstream.responseBody;
+            JsonNode rootNode = upstream.jsonBody;
             if (rootNode.has("code")) {
                 int upstreamCode = rootNode.path("code").asInt(0);
                 if (upstreamCode != 0) {
@@ -742,13 +690,6 @@ public class FQSearchService {
             log.error("获取书籍目录失败 - bookId: {}", bookId, e);
             return FQNovelResponse.error("获取书籍目录失败: " + e.getMessage());
         }
-    }
-
-    /**
-     * 兼容旧调用方，解析逻辑已下沉到独立解析器。
-     */
-    public static FQSearchResponse parseSearchResponse(JsonNode jsonResponse, int tabType) {
-        return FQSearchResponseParser.parseSearchResponse(jsonResponse, tabType);
     }
 
 }

@@ -2,8 +2,10 @@ package com.anjia.unidbgserver.service;
 
 import com.anjia.unidbgserver.config.FQDownloadProperties;
 import com.anjia.unidbgserver.dto.*;
+import com.anjia.unidbgserver.utils.ChapterCacheValidator;
 import com.anjia.unidbgserver.utils.ChapterInfoBuilder;
 import com.anjia.unidbgserver.utils.LocalCacheFactory;
+import com.anjia.unidbgserver.utils.Texts;
 import com.github.benmanes.caffeine.cache.Cache;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -323,7 +325,7 @@ public class FQChapterPrefetchService {
     private FQNovelChapterInfo getCachedChapter(String bookId, String chapterId) {
         String key = cacheKey(bookId, chapterId);
         FQNovelChapterInfo cached = chapterCache.getIfPresent(key);
-        if (!isChapterCacheable(bookId, chapterId, cached)) {
+        if (!ChapterCacheValidator.isCacheable(bookId, chapterId, cached)) {
             if (cached != null) {
                 chapterCache.invalidate(key);
             }
@@ -347,7 +349,7 @@ public class FQChapterPrefetchService {
     }
 
     private void cacheChapter(String bookId, String chapterId, FQNovelChapterInfo chapterInfo) {
-        if (!isChapterCacheable(bookId, chapterId, chapterInfo)) {
+        if (!ChapterCacheValidator.isCacheable(bookId, chapterId, chapterInfo)) {
             return;
         }
 
@@ -358,26 +360,6 @@ public class FQChapterPrefetchService {
         if (pgCacheService != null) {
             pgCacheService.saveChapterIfValid(bookId, chapterId, chapterInfo);
         }
-    }
-
-    private static boolean isChapterCacheable(String bookId, String chapterId, FQNovelChapterInfo chapterInfo) {
-        if (!hasText(bookId) || !hasText(chapterId) || chapterInfo == null) {
-            return false;
-        }
-        if (!hasText(chapterInfo.getTitle()) || !hasText(chapterInfo.getTxtContent())) {
-            return false;
-        }
-        if (!hasText(chapterInfo.getBookId()) || !bookId.trim().equals(chapterInfo.getBookId().trim())) {
-            return false;
-        }
-        if (!hasText(chapterInfo.getChapterId()) || !chapterId.trim().equals(chapterInfo.getChapterId().trim())) {
-            return false;
-        }
-        return true;
-    }
-
-    private static boolean hasText(String value) {
-        return value != null && !value.trim().isEmpty();
     }
 
     private FQNovelChapterInfo buildChapterInfo(String bookId, String chapterId, ItemContent itemContent) throws Exception {
@@ -433,14 +415,14 @@ public class FQChapterPrefetchService {
             return null;
         }
         String reason = chapterNegativeCache.getIfPresent(cacheKey(bookId, chapterId));
-        if (!hasText(reason)) {
+        if (!Texts.hasText(reason)) {
             return null;
         }
         return reason;
     }
 
     private void cacheChapterFailure(String bookId, String chapterId, String reason) {
-        if (chapterNegativeCache == null || !hasText(bookId) || !hasText(chapterId)) {
+        if (chapterNegativeCache == null || !Texts.hasText(bookId) || !Texts.hasText(chapterId)) {
             return;
         }
         String normalized = normalizeFailureReason(reason);
@@ -451,14 +433,14 @@ public class FQChapterPrefetchService {
     }
 
     private void evictChapterFailure(String bookId, String chapterId) {
-        if (chapterNegativeCache == null || !hasText(bookId) || !hasText(chapterId)) {
+        if (chapterNegativeCache == null || !Texts.hasText(bookId) || !Texts.hasText(chapterId)) {
             return;
         }
         chapterNegativeCache.invalidate(cacheKey(bookId, chapterId));
     }
 
     private static String normalizeFailureReason(String reason) {
-        if (!hasText(reason)) {
+        if (!Texts.hasText(reason)) {
             return "";
         }
         String normalized = reason.trim();
@@ -473,7 +455,7 @@ public class FQChapterPrefetchService {
     }
 
     private static boolean isChapterFailureCacheable(String reason) {
-        if (!hasText(reason)) {
+        if (!Texts.hasText(reason)) {
             return false;
         }
         return reason.contains("章节内容为空/过短")
