@@ -1,11 +1,10 @@
 # 使用 Distroless Java 25
-FROM gcr.io/distroless/java25-debian13:latest
+FROM gcr.io/distroless/java25-debian13:nonroot
 
 WORKDIR /app
 
 # 设置时区
 ENV TZ=Asia/Shanghai
-ENV LOG_DIR=/tmp/logs
 
 # 复制 jar 文件
 COPY target/fqnovel.jar /app/fqnovel.jar
