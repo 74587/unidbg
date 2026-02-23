@@ -13,8 +13,5 @@ COPY target/fqnovel.jar /app/fqnovel.jar
 ENV SERVER_PORT=9999
 EXPOSE 9999
 
-# JVM 参数（可通过环境变量覆盖）
-ENV JAVA_TOOL_OPTIONS="--enable-native-access=ALL-UNNAMED"
-
 # 启动应用
-ENTRYPOINT ["java", "-jar", "/app/fqnovel.jar"]
+ENTRYPOINT ["java", "--enable-native-access=ALL-UNNAMED", "-jar", "/app/fqnovel.jar"]
