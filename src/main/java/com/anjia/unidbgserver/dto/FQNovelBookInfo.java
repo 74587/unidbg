@@ -1,62 +1,75 @@
 package com.anjia.unidbgserver.dto;
 
 import com.fasterxml.jackson.annotation.JsonInclude;
-import lombok.Data;
 
 /**
- * FQNovel 书籍信息（Legado 所需最小字段）
+ * FQNovel 书籍信息（Legado 所需最小字段）。
  */
-@Data
 @JsonInclude(JsonInclude.Include.NON_NULL)
-public class FQNovelBookInfo {
+public record FQNovelBookInfo(
+    String bookId,
+    String bookName,
+    String author,
+    String description,
+    String coverUrl,
+    Integer totalChapters,
+    Long wordNumber,
+    String lastChapterTitle,
+    String category,
+    Integer status
+) {
+    public FQNovelBookInfo withTotalChapters(Integer value) {
+        return new FQNovelBookInfo(
+            bookId,
+            bookName,
+            author,
+            description,
+            coverUrl,
+            value,
+            wordNumber,
+            lastChapterTitle,
+            category,
+            status
+        );
+    }
 
-    /**
-     * 书籍ID
-     */
-    private String bookId;
+    public String getBookId() {
+        return bookId;
+    }
 
-    /**
-     * 书籍名称
-     */
-    private String bookName;
+    public String getBookName() {
+        return bookName;
+    }
 
-    /**
-     * 作者
-     */
-    private String author;
+    public String getAuthor() {
+        return author;
+    }
 
-    /**
-     * 书籍简介
-     */
-    private String description;
+    public String getDescription() {
+        return description;
+    }
 
-    /**
-     * 书籍封面 URL
-     */
-    private String coverUrl;
+    public String getCoverUrl() {
+        return coverUrl;
+    }
 
-    /**
-     * 章节总数
-     */
-    private Integer totalChapters;
+    public Integer getTotalChapters() {
+        return totalChapters;
+    }
 
-    /**
-     * 字数
-     */
-    private Long wordNumber;
+    public Long getWordNumber() {
+        return wordNumber;
+    }
 
-    /**
-     * 最新章节标题
-     */
-    private String lastChapterTitle;
+    public String getLastChapterTitle() {
+        return lastChapterTitle;
+    }
 
-    /**
-     * 分类
-     */
-    private String category;
+    public String getCategory() {
+        return category;
+    }
 
-    /**
-     * 状态（0 连载中 / 1 已完结）
-     */
-    private Integer status;
+    public Integer getStatus() {
+        return status;
+    }
 }

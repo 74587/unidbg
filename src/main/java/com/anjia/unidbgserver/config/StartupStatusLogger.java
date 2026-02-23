@@ -2,30 +2,38 @@ package com.anjia.unidbgserver.config;
 
 import com.anjia.unidbgserver.service.FQDeviceRotationService;
 import com.anjia.unidbgserver.service.FQRegisterKeyService;
-import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.context.event.EventListener;
 import org.springframework.stereotype.Component;
 
 import java.util.Map;
 
-@Slf4j
 @Component
-@RequiredArgsConstructor
 public class StartupStatusLogger {
+
+    private static final Logger log = LoggerFactory.getLogger(StartupStatusLogger.class);
 
     private final FQApiProperties fqApiProperties;
     private final FQDeviceRotationService deviceRotationService;
     private final FQRegisterKeyService registerKeyService;
 
+    public StartupStatusLogger(
+        FQApiProperties fqApiProperties,
+        FQDeviceRotationService deviceRotationService,
+        FQRegisterKeyService registerKeyService
+    ) {
+        this.fqApiProperties = fqApiProperties;
+        this.deviceRotationService = deviceRotationService;
+        this.registerKeyService = registerKeyService;
+    }
+
     @EventListener(ApplicationReadyEvent.class)
     public void onReady() {
         String poolName = deviceRotationService.getCurrentProfileName();
-        FQApiProperties.RuntimeProfile runtimeProfile = fqApiProperties.getRuntimeProfile();
-        FQApiProperties.Device runtimeDevice = runtimeProfile != null ? runtimeProfile.getDevice() : null;
-        String deviceId = runtimeDevice != null ? runtimeDevice.getDeviceId() : null;
-        int poolSize = fqApiProperties.getDevicePool() != null ? fqApiProperties.getDevicePool().size() : 0;
+        String deviceId = currentRuntimeDeviceId();
+        int poolSize = configuredDevicePoolSize();
 
         log.info("设备配置：池大小={}, 当前={}, ID={}", poolSize, poolName, deviceId);
 
@@ -39,5 +47,17 @@ public class StartupStatusLogger {
         } catch (Exception e) {
             log.warn("预热失败（将在首次请求时重试）: {}", e.getMessage());
         }
+    }
+
+    private String currentRuntimeDeviceId() {
+        FQApiProperties.RuntimeProfile runtimeProfile = fqApiProperties.getRuntimeProfile();
+        if (runtimeProfile == null || runtimeProfile.getDevice() == null) {
+            return null;
+        }
+        return runtimeProfile.getDevice().getDeviceId();
+    }
+
+    private int configuredDevicePoolSize() {
+        return fqApiProperties.getDevicePool() == null ? 0 : fqApiProperties.getDevicePool().size();
     }
 }

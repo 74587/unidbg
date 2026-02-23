@@ -1,26 +1,22 @@
 package com.anjia.unidbgserver.dto;
 
-import lombok.Data;
-
 /**
- * FQNovel 注册密钥响应
- * 对应 Rust 中的 FqRegisterKeyResponse 结构
+ * FQNovel 注册密钥响应。
  */
-@Data
-public class FqRegisterKeyResponse {
+public record FqRegisterKeyResponse(
+    long code,
+    String message,
+    FqRegisterKeyPayloadResponse data
+) {
+    public long getCode() {
+        return code;
+    }
 
-    /**
-     * 响应码
-     */
-    private long code;
+    public String getMessage() {
+        return message;
+    }
 
-    /**
-     * 响应消息
-     */
-    private String message;
-
-    /**
-     * 响应数据
-     */
-    private FqRegisterKeyPayloadResponse data;
+    public FqRegisterKeyPayloadResponse getData() {
+        return data;
+    }
 }

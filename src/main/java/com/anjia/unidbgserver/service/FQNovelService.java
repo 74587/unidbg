@@ -2,99 +2,74 @@ package com.anjia.unidbgserver.service;
 
 import com.anjia.unidbgserver.config.FQApiProperties;
 import com.anjia.unidbgserver.config.FQDownloadProperties;
-import com.anjia.unidbgserver.dto.*;
+import com.anjia.unidbgserver.constants.FQConstants;
+import com.anjia.unidbgserver.dto.FQDirectoryRequest;
+import com.anjia.unidbgserver.dto.FQDirectoryResponse;
+import com.anjia.unidbgserver.dto.FQNovelBookInfo;
+import com.anjia.unidbgserver.dto.FQNovelBookInfoResp;
+import com.anjia.unidbgserver.dto.FQNovelResponse;
+import com.anjia.unidbgserver.dto.FqIBatchFullResponse;
+import com.anjia.unidbgserver.dto.FqVariable;
 import com.anjia.unidbgserver.utils.FQApiUtils;
-import com.anjia.unidbgserver.utils.GzipUtils;
 import com.anjia.unidbgserver.utils.ProcessLifecycle;
+import com.anjia.unidbgserver.utils.RetryBackoff;
+import com.anjia.unidbgserver.utils.Texts;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import lombok.extern.slf4j.Slf4j;
-import org.springframework.http.*;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Service;
-import org.springframework.web.client.RestTemplate;
 
-import javax.annotation.Resource;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executor;
-import java.util.concurrent.ThreadLocalRandom;
 
-/**
- * FQNovel 小说内容获取服务
- * 基于 fqnovel-api 的 Rust 实现移植
- */
-@Slf4j
 @Service
 public class FQNovelService {
 
-    private static final String BATCH_FULL_PATH = "/reading/reader/batch_full/v";
-    private static final String REASON_ILLEGAL_ACCESS = "ILLEGAL_ACCESS";
-    private static final String REASON_UPSTREAM_EMPTY = "UPSTREAM_EMPTY";
-    private static final String REASON_UPSTREAM_GZIP = "UPSTREAM_GZIP";
-    private static final String REASON_UPSTREAM_NON_JSON = "UPSTREAM_NON_JSON";
-    private static final String REASON_SIGNER_FAIL = "SIGNER_FAIL";
+    private static final Logger log = LoggerFactory.getLogger(FQNovelService.class);
 
-    private static final String EX_EMPTY_UPSTREAM_RESPONSE = "Empty upstream response";
-    private static final String EX_NON_JSON_UPSTREAM_RESPONSE = "UPSTREAM_NON_JSON";
-    private static final String EX_SIGNER_FAIL = "签名生成失败";
-    private static final String EX_GZIP_NOT_IN_FORMAT = "Not in GZIP format";
-    private static final String EX_JACKSON_EMPTY_CONTENT = "No content to map due to end-of-input";
+    private static final String DIRECTORY_FAILURE_PREFIX = "获取书籍目录失败: ";
+    private static final String CHAPTER_FETCH_FAILURE_PREFIX = "获取章节内容失败: ";
+    private static final long HIGH_FREQ_LOG_COOLDOWN_MS = 60_000L;
 
-    private static final long ILLEGAL_ACCESS_CODE = 110L;
-    private static final int MAX_BACKOFF_EXPONENT = 10;
-    private static final long RETRY_JITTER_MAX_MS = 250L;
-    private static final int SIGNER_RESET_ON_EMPTY_ATTEMPT_THRESHOLD = 2;
+    private final FQApiUtils fqApiUtils;
+    private final FQApiProperties fqApiProperties;
+    private final FQSearchService fqSearchService;
+    private final FQDownloadProperties downloadProperties;
+    private final FQDeviceRotationService deviceRotationService;
+    private final AutoRestartService autoRestartService;
+    private final UpstreamSignedRequestService upstreamSignedRequestService;
+    private final ObjectMapper objectMapper;
+    @Qualifier("applicationTaskExecutor")
+    private final Executor taskExecutor;
+    private final ConcurrentHashMap<String, Long> highFreqLogTimestamps = new ConcurrentHashMap<>();
 
-
-    @Resource(name = "fqEncryptWorker")
-    private FQEncryptServiceWorker fqEncryptServiceWorker;
-
-    @Resource
-    private FQApiProperties fqApiProperties;
-
-    @Resource
-    private FQApiUtils fqApiUtils;
-
-    @Resource
-    private FQSearchService fqSearchService;
-
-    @Resource
-    private UpstreamRateLimiter upstreamRateLimiter;
-
-    @Resource
-    private FQDownloadProperties downloadProperties;
-
-    @Resource
-    private FQDeviceRotationService deviceRotationService;
-
-    @Resource
-    private AutoRestartService autoRestartService;
-
-    @Resource
-    private RestTemplate restTemplate;
-
-    @Resource
-    private ObjectMapper objectMapper;
-
-    @Resource(name = "applicationTaskExecutor")
-    private Executor taskExecutor;
-
-    /**
-     * 获取默认FQ变量（延迟初始化）
-     */
-    private FqVariable getDefaultFqVariable() {
-        // 设备信息可能在运行期被自动旋转；这里不做缓存，确保每次取到最新配置
-        return new FqVariable(fqApiProperties);
+    public FQNovelService(
+        FQApiUtils fqApiUtils,
+        FQApiProperties fqApiProperties,
+        FQSearchService fqSearchService,
+        FQDownloadProperties downloadProperties,
+        FQDeviceRotationService deviceRotationService,
+        AutoRestartService autoRestartService,
+        UpstreamSignedRequestService upstreamSignedRequestService,
+        ObjectMapper objectMapper,
+        @Qualifier("applicationTaskExecutor") Executor taskExecutor
+    ) {
+        this.fqApiUtils = fqApiUtils;
+        this.fqApiProperties = fqApiProperties;
+        this.fqSearchService = fqSearchService;
+        this.downloadProperties = downloadProperties;
+        this.deviceRotationService = deviceRotationService;
+        this.autoRestartService = autoRestartService;
+        this.upstreamSignedRequestService = upstreamSignedRequestService;
+        this.objectMapper = objectMapper;
+        this.taskExecutor = taskExecutor;
     }
 
-    /**
-     * 获取章节内容 (基于 fqnovel-api 的 batch_full 方法)
-     *
-     * @param itemIds 章节ID列表，逗号分隔
-     * @param bookId 书籍ID
-     * @param download 是否下载模式 (false=在线阅读, true=下载)
-     * @return 内容响应
-     */
     public CompletableFuture<FQNovelResponse<FqIBatchFullResponse>> batchFull(String itemIds, String bookId, boolean download) {
         return CompletableFuture.supplyAsync(() -> executeBatchFullWithRetry(itemIds, bookId, download), taskExecutor);
     }
@@ -123,55 +98,40 @@ public class FQNovelService {
     }
 
     private FQNovelResponse<FqIBatchFullResponse> fetchBatchFullOnce(String itemIds, String bookId, boolean download) throws Exception {
-        FqVariable var = getDefaultFqVariable();
-
-        String url = fqApiUtils.getBaseUrl() + BATCH_FULL_PATH;
+        FqVariable var = new FqVariable(fqApiProperties);
+        String url = fqApiUtils.getBaseUrl() + FQConstants.Chapter.BATCH_FULL_PATH;
         Map<String, String> params = fqApiUtils.buildBatchFullParams(var, itemIds, bookId, download);
         String fullUrl = fqApiUtils.buildUrlWithParams(url, params);
 
-        Map<String, String> headers = fqApiUtils.buildCommonHeaders();
-
-        upstreamRateLimiter.acquire();
-        Map<String, String> signedHeaders = fqEncryptServiceWorker.generateSignatureHeadersSync(fullUrl, headers);
-        if (signedHeaders == null || signedHeaders.isEmpty()) {
-            throw new IllegalStateException(EX_SIGNER_FAIL);
+        UpstreamSignedRequestService.UpstreamRawResult upstream =
+            upstreamSignedRequestService.executeSignedRawGetRateLimited(fullUrl, fqApiUtils.buildCommonHeaders());
+        if (upstream == null) {
+            throw new IllegalStateException("签名生成失败");
         }
 
-        HttpHeaders httpHeaders = new HttpHeaders();
-        headers.forEach(httpHeaders::set);
-        signedHeaders.forEach(httpHeaders::set);
-
-        HttpEntity<String> entity = new HttpEntity<>(httpHeaders);
-        ResponseEntity<byte[]> response = restTemplate.exchange(fullUrl, HttpMethod.GET, entity, byte[].class);
-
-        String responseBody = GzipUtils.decodeUpstreamResponse(response);
-        String trimmedBody = responseBody.trim();
-        if (trimmedBody.isEmpty()) {
-            throw new RuntimeException(EX_EMPTY_UPSTREAM_RESPONSE);
-        }
-
-        if (trimmedBody.startsWith("<")) {
-            if (trimmedBody.contains(REASON_ILLEGAL_ACCESS)) {
-                throw new IllegalStateException(REASON_ILLEGAL_ACCESS);
-            }
-            throw new IllegalStateException(EX_NON_JSON_UPSTREAM_RESPONSE);
+        String responseBody = upstream.getResponseBody();
+        String trimmedBody = Texts.trimToNull(responseBody);
+        if (trimmedBody == null) {
+            throw new RuntimeException("Empty upstream response");
         }
         if (!trimmedBody.startsWith("{") && !trimmedBody.startsWith("[")) {
-            if (trimmedBody.contains(REASON_ILLEGAL_ACCESS)) {
-                throw new IllegalStateException(REASON_ILLEGAL_ACCESS);
+            if (UpstreamSignedRequestService.containsIllegalAccess(trimmedBody)) {
+                throw new IllegalStateException(UpstreamSignedRequestService.REASON_ILLEGAL_ACCESS);
             }
-            throw new IllegalStateException(EX_NON_JSON_UPSTREAM_RESPONSE);
+            throw new IllegalStateException(UpstreamSignedRequestService.REASON_UPSTREAM_NON_JSON);
         }
 
         FqIBatchFullResponse batchResponse = objectMapper.readValue(responseBody, FqIBatchFullResponse.class);
         if (batchResponse == null) {
             throw new RuntimeException("Upstream parse failed");
         }
-
         if (batchResponse.getCode() != 0) {
-            String msg = batchResponse.getMessage() != null ? batchResponse.getMessage() : "";
-            if (isIllegalAccess(batchResponse.getCode(), msg, responseBody)) {
-                throw new IllegalStateException(REASON_ILLEGAL_ACCESS);
+            String msg = Texts.trimToEmpty(batchResponse.getMessage());
+            String raw = Texts.trimToEmpty(responseBody);
+            if (batchResponse.getCode() == 110L
+                || UpstreamSignedRequestService.containsIllegalAccess(msg)
+                || UpstreamSignedRequestService.containsIllegalAccess(raw)) {
+                throw new IllegalStateException(UpstreamSignedRequestService.REASON_ILLEGAL_ACCESS);
             }
             return FQNovelResponse.error((int) batchResponse.getCode(), msg);
         }
@@ -188,113 +148,97 @@ public class FQNovelService {
         long baseDelayMs,
         long maxDelayMs
     ) {
-        String message = e.getMessage() != null ? e.getMessage() : "";
-        String retryReason = resolveRetryReason(message);
+        String message = Texts.defaultIfBlank(Texts.trimToEmpty(e.getMessage()), e.getClass().getSimpleName());
+        String retryReason = UpstreamSignedRequestService.resolveRetryReason(message);
         boolean retryable = retryReason != null;
 
         if (!retryable || attempt >= maxAttempts) {
             if (retryable) {
                 autoRestartService.recordFailure(retryReason);
             }
-            return buildBatchFullFailureResponse(retryReason, message, itemIds, e);
+            String userMessage = batchFailureMessage(retryReason);
+            if (Texts.hasText(userMessage)) {
+                return FQNovelResponse.error(userMessage);
+            }
+            if (shouldLogHighFreq("batch.failure")) {
+                log.error("获取章节内容失败 - itemIds: {}", itemIds, e);
+            }
+            return FQNovelResponse.error(CHAPTER_FETCH_FAILURE_PREFIX + message);
         }
 
-        if (REASON_SIGNER_FAIL.equals(retryReason)
-            || (REASON_UPSTREAM_EMPTY.equals(retryReason) && attempt >= SIGNER_RESET_ON_EMPTY_ATTEMPT_THRESHOLD)) {
+        if (UpstreamSignedRequestService.REASON_SIGNER_FAIL.equals(retryReason)
+            || (UpstreamSignedRequestService.REASON_UPSTREAM_EMPTY.equals(retryReason)
+            && attempt >= 2)) {
             FQEncryptServiceWorker.requestGlobalReset(retryReason);
         }
         // 所有可重试异常都遵循设备切换冷却，避免高并发时在设备池里来回抖动。
         deviceRotationService.rotateIfNeeded(retryReason);
 
-        long delay = computeRetryDelay(baseDelayMs, maxDelayMs, attempt);
-        try {
-            Thread.sleep(delay);
-        } catch (InterruptedException interrupted) {
-            Thread.currentThread().interrupt();
+        long delay = RetryBackoff.computeDelay(
+            baseDelayMs,
+            maxDelayMs,
+            attempt,
+            10,
+            0L,
+            250L,
+            false
+        );
+        if (!RetryBackoff.sleep(delay)) {
             return FQNovelResponse.error("获取章节内容失败: 重试被中断");
         }
 
         return null;
     }
 
-    private static String resolveRetryReason(String message) {
-        boolean illegal = message.contains(REASON_ILLEGAL_ACCESS);
-        boolean empty = message.contains(EX_EMPTY_UPSTREAM_RESPONSE) || message.contains(EX_JACKSON_EMPTY_CONTENT);
-        boolean gzipErr = message.contains(EX_GZIP_NOT_IN_FORMAT);
-        boolean nonJson = message.contains(EX_NON_JSON_UPSTREAM_RESPONSE);
-        boolean signerFail = message.contains(EX_SIGNER_FAIL);
-
-        if (illegal) {
-            return REASON_ILLEGAL_ACCESS;
+    private static String batchFailureMessage(String retryReason) {
+        if (retryReason == null) {
+            return null;
         }
-        if (empty) {
-            return REASON_UPSTREAM_EMPTY;
-        }
-        if (gzipErr) {
-            return REASON_UPSTREAM_GZIP;
-        }
-        if (nonJson) {
-            return REASON_UPSTREAM_NON_JSON;
-        }
-        if (signerFail) {
-            return REASON_SIGNER_FAIL;
-        }
-        return null;
+        return switch (retryReason) {
+            case UpstreamSignedRequestService.REASON_ILLEGAL_ACCESS ->
+                "获取章节内容失败: ILLEGAL_ACCESS（已重试仍失败，建议更换设备/降低频率）";
+            case UpstreamSignedRequestService.REASON_UPSTREAM_GZIP ->
+                "获取章节内容失败: 响应格式异常（已重试仍失败）";
+            case UpstreamSignedRequestService.REASON_UPSTREAM_NON_JSON ->
+                "获取章节内容失败: 上游返回非JSON（已重试仍失败）";
+            case UpstreamSignedRequestService.REASON_UPSTREAM_EMPTY ->
+                "获取章节内容失败: 空响应（已重试仍失败）";
+            case UpstreamSignedRequestService.REASON_SIGNER_FAIL ->
+                "获取章节内容失败: 签名生成失败（已重试仍失败）";
+            default -> null;
+        };
     }
 
-    private static long computeRetryDelay(long baseDelayMs, long maxDelayMs, int attempt) {
-        long delay = baseDelayMs <= 0
-            ? 0L
-            : baseDelayMs * (1L << Math.min(MAX_BACKOFF_EXPONENT, Math.max(0, attempt - 1)));
-        delay = Math.min(delay, maxDelayMs);
-        delay += ThreadLocalRandom.current().nextLong(0, RETRY_JITTER_MAX_MS);
-        return delay;
+    private static boolean isSuccessWithData(FQNovelResponse<?> response) {
+        return response != null && response.getCode() != null && response.getCode() == 0 && response.getData() != null;
     }
 
-    private FQNovelResponse<FqIBatchFullResponse> buildBatchFullFailureResponse(
-        String retryReason,
-        String message,
-        String itemIds,
-        Exception e
-    ) {
-        if (REASON_ILLEGAL_ACCESS.equals(retryReason)) {
-            return FQNovelResponse.error("获取章节内容失败: ILLEGAL_ACCESS（已重试仍失败，建议更换设备/降低频率）");
+    private static String directoryFailureMessage(FQNovelResponse<?> response) {
+        if (response == null) {
+            return DIRECTORY_FAILURE_PREFIX + "空响应";
         }
-        if (REASON_UPSTREAM_GZIP.equals(retryReason)) {
-            return FQNovelResponse.error("获取章节内容失败: 响应格式异常（已重试仍失败）");
-        }
-        if (REASON_UPSTREAM_NON_JSON.equals(retryReason)) {
-            return FQNovelResponse.error("获取章节内容失败: 上游返回非JSON（已重试仍失败）");
-        }
-        if (REASON_UPSTREAM_EMPTY.equals(retryReason)) {
-            return FQNovelResponse.error("获取章节内容失败: 空响应（已重试仍失败）");
-        }
-        if (REASON_SIGNER_FAIL.equals(retryReason)) {
-            return FQNovelResponse.error("获取章节内容失败: 签名生成失败（已重试仍失败）");
-        }
-        log.error("获取章节内容失败 - itemIds: {}", itemIds, e);
-        return FQNovelResponse.error("获取章节内容失败: " + message);
+        Integer code = response.getCode();
+        String message = Texts.defaultIfBlank(response.getMessage(), "目录接口未返回有效数据");
+        String normalizedMessage = "success".equalsIgnoreCase(message) ? "目录接口未返回有效数据" : message;
+        return code != null && code != 0
+            ? DIRECTORY_FAILURE_PREFIX + "code=" + code + ", message=" + normalizedMessage
+            : DIRECTORY_FAILURE_PREFIX + normalizedMessage;
     }
 
-    private static boolean isIllegalAccess(long code, String message, String rawBody) {
-        if (code == ILLEGAL_ACCESS_CODE) {
-            return true;
+    private boolean shouldLogHighFreq(String key) {
+        long now = System.currentTimeMillis();
+        long last = highFreqLogTimestamps.getOrDefault(key, 0L);
+        if (now - last < HIGH_FREQ_LOG_COOLDOWN_MS) {
+            return false;
         }
-        String msg = message != null ? message : "";
-        String raw = rawBody != null ? rawBody : "";
-        return msg.contains("ILLEGAL_ACCESS") || raw.contains("ILLEGAL_ACCESS");
+        highFreqLogTimestamps.put(key, now);
+        return true;
     }
 
-    /**
-     * 获取书籍信息 (从目录接口获取完整信息)
-     *
-     * @param bookId 书籍ID
-     * @return 书籍信息
-     */
     public CompletableFuture<FQNovelResponse<FQNovelBookInfo>> getBookInfo(String bookId) {
-        final String trimmedBookId = bookId != null ? bookId.trim() : "";
-        if (trimmedBookId.isEmpty()) {
-            return CompletableFuture.completedFuture(FQNovelResponse.error("书籍ID不能为空"));
+        final String trimmedBookId = Texts.trimToNull(bookId);
+        if (trimmedBookId == null) {
+            return CompletableFuture.completedFuture(FQNovelResponse.<FQNovelBookInfo>error("书籍ID不能为空"));
         }
 
         FQDirectoryRequest directoryRequest = new FQDirectoryRequest();
@@ -303,89 +247,80 @@ public class FQNovelService {
         directoryRequest.setNeedVersion(true);
         directoryRequest.setMinimalResponse(false);
 
-        // 避免在同一线程池内阻塞 .get() 导致线程耗尽/死锁：使用 thenApply 链式处理
         return fqSearchService.getBookDirectory(directoryRequest)
             .thenApply(directoryResponse -> {
-                if (directoryResponse == null) {
-                    return FQNovelResponse.<FQNovelBookInfo>error("获取书籍目录失败: 空响应");
+                if (!isSuccessWithData(directoryResponse)) {
+                    return FQNovelResponse.<FQNovelBookInfo>error(directoryFailureMessage(directoryResponse));
                 }
-                if (directoryResponse.getCode() == null || directoryResponse.getCode() != 0 || directoryResponse.getData() == null) {
-                    String msg = directoryResponse.getMessage();
-                    if (msg == null || msg.trim().isEmpty() || "success".equalsIgnoreCase(msg.trim())) {
-                        msg = "目录接口未返回有效数据";
-                    }
-                    return FQNovelResponse.<FQNovelBookInfo>error("获取书籍目录失败: " + msg);
-                }
-
-                FQDirectoryResponse directoryData = directoryResponse.getData();
-                FQNovelBookInfoResp bookInfoResp = directoryData.getBookInfo();
-                if (bookInfoResp == null) {
-                    return FQNovelResponse.<FQNovelBookInfo>error("书籍信息不存在");
-                }
-
-                try {
-                    FQNovelBookInfo bookInfo = mapBookInfoRespToBookInfo(bookInfoResp, trimmedBookId);
-
-                    log.debug("调试信息 - bookId: {}, directoryData.serialCount: {}, bookInfoResp.serialCount: {}, directoryData.catalogData.size: {}",
-                        trimmedBookId, directoryData.getSerialCount(), bookInfoResp.getSerialCount(),
-                        directoryData.getCatalogData() != null ? directoryData.getCatalogData().size() : "null");
-
-                    if (bookInfoResp.getSerialCount() != null) {
-                        bookInfo.setTotalChapters(bookInfoResp.getSerialCount());
-                        log.debug("使用bookInfo.serialCount获取章节总数 - bookId: {}, 章节数: {}", trimmedBookId, bookInfoResp.getSerialCount());
-                    } else if (directoryData.getSerialCount() != null) {
-                        bookInfo.setTotalChapters(directoryData.getSerialCount());
-                        log.info("使用目录接口serial_count获取章节总数 - bookId: {}, 章节数: {}", trimmedBookId, directoryData.getSerialCount());
-                    } else {
-                        List<FQDirectoryResponse.CatalogItem> catalogData = directoryData.getCatalogData();
-                        if (catalogData != null && !catalogData.isEmpty()) {
-                            bookInfo.setTotalChapters(catalogData.size());
-                            log.info("从目录数据获取章节总数 - bookId: {}, 章节数: {}", trimmedBookId, catalogData.size());
-                        } else {
-                            bookInfo.setTotalChapters(0);
-                            log.warn("无法获取章节总数 - bookId: {}", trimmedBookId);
-                        }
-                    }
-
-                    return FQNovelResponse.success(bookInfo);
-                } catch (Exception e) {
-                    log.error("获取书籍信息失败 - bookId: {}", trimmedBookId, e);
-                    return FQNovelResponse.<FQNovelBookInfo>error("获取书籍信息失败: " + e.getMessage());
-                }
+                return buildBookInfoFromDirectoryData(directoryResponse.getData(), trimmedBookId);
             })
-            .exceptionally(e -> {
-                Throwable t = e instanceof java.util.concurrent.CompletionException && e.getCause() != null ? e.getCause() : e;
-                log.error("获取书籍信息失败 - bookId: {}", trimmedBookId, t);
-                String msg = t.getMessage() != null ? t.getMessage() : t.toString();
-                return FQNovelResponse.error("获取书籍信息失败: " + msg);
-            });
+            .exceptionally(e -> handleBookInfoFailure(trimmedBookId, e));
     }
 
-    /**
-     * 将FQNovelBookInfoResp转换为FQNovelBookInfo（精简版 - 仅映射必要字段）
-     *
-     * @param resp 原始响应对象
-     * @param bookId 书籍ID
-     * @return 映射后的书籍信息对象
-     */
-    private FQNovelBookInfo mapBookInfoRespToBookInfo(FQNovelBookInfoResp resp, String bookId) {
-        FQNovelBookInfo info = new FQNovelBookInfo();
-        
-        // 只映射 Simple 版本需要的字段
-        info.setBookId(bookId);
-        info.setBookName(resp.getBookName());
-        info.setAuthor(resp.getAuthor());
-        String description = resp.getAbstractContent();
-        if (description == null || description.trim().isEmpty()) {
-            description = resp.getBookAbstractV2();
+    private FQNovelResponse<FQNovelBookInfo> buildBookInfoFromDirectoryData(
+        FQDirectoryResponse directoryData,
+        String bookId
+    ) {
+        FQNovelBookInfoResp bookInfoResp = directoryData.getBookInfo();
+        if (bookInfoResp == null) {
+            return FQNovelResponse.error("书籍信息不存在");
         }
-        info.setDescription(description);
-        info.setCoverUrl(resp.getThumbUrl());
-        info.setWordNumber(resp.getWordNumber());
-        info.setLastChapterTitle(resp.getLastChapterTitle());
-        info.setCategory(resp.getCategory());
-        info.setStatus(resp.getStatus() != null ? resp.getStatus() : 0);
-        
-        return info;
+
+        String description = Texts.firstNonBlank(bookInfoResp.getAbstractContent(), bookInfoResp.getBookAbstractV2());
+        FQNovelBookInfo bookInfo = new FQNovelBookInfo(
+            bookId,
+            bookInfoResp.getBookName(),
+            bookInfoResp.getAuthor(),
+            description,
+            bookInfoResp.getThumbUrl(),
+            null,
+            bookInfoResp.getWordNumber(),
+            bookInfoResp.getLastChapterTitle(),
+            bookInfoResp.getCategory(),
+            Objects.requireNonNullElse(bookInfoResp.getStatus(), 0)
+        );
+        if (log.isDebugEnabled()) {
+            List<FQDirectoryResponse.CatalogItem> catalogData = directoryData.getCatalogData();
+            log.debug("调试信息 - bookId: {}, directoryData.serialCount: {}, bookInfoResp.serialCount: {}, directoryData.catalogData.size: {}",
+                bookId,
+                directoryData.getSerialCount(),
+                bookInfoResp.getSerialCount(),
+                catalogData == null ? "null" : catalogData.size());
+        }
+
+        return FQNovelResponse.success(bookInfo.withTotalChapters(resolveTotalChapters(directoryData, bookInfoResp, bookId)));
     }
+
+    private int resolveTotalChapters(FQDirectoryResponse directoryData, FQNovelBookInfoResp bookInfoResp, String bookId) {
+        Integer totalChapters = bookInfoResp.getSerialCount();
+        if (totalChapters != null) {
+            log.debug("使用bookInfo.serialCount获取章节总数 - bookId: {}, 章节数: {}", bookId, totalChapters);
+            return totalChapters;
+        }
+        totalChapters = directoryData.getSerialCount();
+        if (totalChapters != null) {
+            log.info("使用目录接口serial_count获取章节总数 - bookId: {}, 章节数: {}", bookId, totalChapters);
+            return totalChapters;
+        }
+        List<FQDirectoryResponse.CatalogItem> catalogData = directoryData.getCatalogData();
+        if (catalogData != null && !catalogData.isEmpty()) {
+            int catalogSize = catalogData.size();
+            log.info("从目录数据获取章节总数 - bookId: {}, 章节数: {}", bookId, catalogSize);
+            return catalogSize;
+        }
+        log.warn("无法获取章节总数 - bookId: {}", bookId);
+        return 0;
+    }
+
+    private FQNovelResponse<FQNovelBookInfo> handleBookInfoFailure(String bookId, Throwable throwable) {
+        Throwable resolved = throwable instanceof java.util.concurrent.CompletionException ce && ce.getCause() != null
+            ? ce.getCause()
+            : throwable;
+        log.error("获取书籍信息失败 - bookId: {}", bookId, resolved);
+        String message = resolved == null
+            ? "未知错误"
+            : Texts.defaultIfBlank(resolved.getMessage(), resolved.toString());
+        return FQNovelResponse.error("获取书籍信息失败: " + message);
+    }
+
 }

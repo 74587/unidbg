@@ -2,7 +2,7 @@
 
 ## 环境要求
 
-- JDK 8
+- JDK 25
 - Maven 3.9.12
 
 ## 本地编译
@@ -32,14 +32,9 @@ postgresql缓存版
 docker run -d --name fqnovel --restart=unless-stopped -p 9999:9999 -e DB_URL='postgresql://user:password@ip:端口/db' gxmandppx/unidbg-fq:latest
 ```
 
-## ☕ 支持与赞赏
+## 注意
 
-如果你觉得这个项目对你有帮助，欢迎打赏支持！你的支持是我持续维护和更新的最大动力。
-仅支持L站积分。
-
-[![Sponsor Mengying](https://img.shields.io/badge/Sponsor-Mengying-ea4aaa?style=for-the-badge&logo=heart&logoColor=white)](https://shop.mengying.me/pay)
-
-👉 [点击这里前往赞赏页面](https://shop.mengying.me/pay)
+最后一个java8版本是1.7.6版本
 
 ## 免责声明
 

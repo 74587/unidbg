@@ -3,7 +3,9 @@ package com.anjia.unidbgserver.utils;
 import com.anjia.unidbgserver.dto.FQSearchResponse;
 import com.fasterxml.jackson.databind.JsonNode;
 
+import java.util.ArrayDeque;
 import java.util.ArrayList;
+import java.util.Deque;
 import java.util.List;
 
 /**
@@ -17,54 +19,23 @@ public final class FQSearchResponseParser {
     public static FQSearchResponse parseSearchResponse(JsonNode jsonResponse, int tabType) {
         FQSearchResponse searchResponse = new FQSearchResponse();
 
-        JsonNode dataNode = jsonResponse != null ? jsonResponse.path("data") : null;
-        JsonNode searchTabs = jsonResponse != null ? jsonResponse.get("search_tabs") : null;
-        if (searchTabs == null || !searchTabs.isArray()) {
-            searchTabs = dataNode != null ? dataNode.get("search_tabs") : null;
-        }
-        if (searchTabs == null || !searchTabs.isArray()) {
-            searchTabs = jsonResponse != null ? jsonResponse.get("searchTabs") : null;
-        }
-        if (searchTabs == null || !searchTabs.isArray()) {
-            searchTabs = dataNode != null ? dataNode.get("searchTabs") : null;
-        }
+        JsonNode dataNode = dataNodeOf(jsonResponse);
+        JsonNode searchTabs = searchTabsOf(jsonResponse, dataNode);
 
         boolean matchedTab = false;
         if (searchTabs != null && searchTabs.isArray()) {
             for (JsonNode tab : searchTabs) {
                 if (tab.has("tab_type") && tab.get("tab_type").asInt() == tabType) {
                     matchedTab = true;
-                    List<FQSearchResponse.BookItem> books = new ArrayList<>();
-                    JsonNode tabData = tab.get("data");
-                    if (tabData != null && tabData.isArray()) {
-                        for (JsonNode cell : tabData) {
-                            JsonNode bookData = cell.get("book_data");
-                            if (bookData != null && bookData.isArray()) {
-                                for (JsonNode bookNode : bookData) {
-                                    books.add(parseBookItem(bookNode));
-                                }
-                            }
-                        }
-                    }
-                    JsonNode directBooks = tab.get("books");
-                    if (books.isEmpty() && directBooks != null && directBooks.isArray()) {
-                        for (JsonNode bookNode : directBooks) {
-                            books.add(parseBookItem(bookNode));
-                        }
-                    }
+                    List<FQSearchResponse.BookItem> books = parseBooksFromTab(tab);
                     searchResponse.setBooks(books);
 
                     searchResponse.setTotal(tab.path("total").asInt(books.size()));
                     searchResponse.setHasMore(tab.path("has_more").asBoolean(false));
                     String tabSearchId = Texts.firstNonBlank(
-                        tab.path("search_id").asText(""),
-                        tab.path("searchId").asText(""),
-                        tab.path("search_id_str").asText(""),
-                        dataNode != null ? dataNode.path("search_id").asText("") : "",
-                        dataNode != null ? dataNode.path("searchId").asText("") : "",
-                        dataNode != null ? dataNode.path("search_id_str").asText("") : "",
-                        jsonResponse != null ? jsonResponse.path("search_id").asText("") : "",
-                        jsonResponse != null ? jsonResponse.path("searchId").asText("") : ""
+                        searchIdOf(tab),
+                        searchIdOf(dataNode),
+                        searchIdOf(jsonResponse)
                     );
                     searchResponse.setSearchId(tabSearchId);
                     break;
@@ -72,27 +43,9 @@ public final class FQSearchResponseParser {
             }
         }
 
-        if (!matchedTab && (searchResponse.getBooks() == null || searchResponse.getBooks().isEmpty()) && searchTabs != null && searchTabs.isArray()) {
+        if (!matchedTab && !hasBooks(searchResponse) && searchTabs != null && searchTabs.isArray()) {
             for (JsonNode tab : searchTabs) {
-                List<FQSearchResponse.BookItem> books = new ArrayList<>();
-
-                JsonNode tabData = tab.get("data");
-                if (tabData != null && tabData.isArray()) {
-                    for (JsonNode cell : tabData) {
-                        JsonNode bookData = cell.get("book_data");
-                        if (bookData != null && bookData.isArray()) {
-                            for (JsonNode bookNode : bookData) {
-                                books.add(parseBookItem(bookNode));
-                            }
-                        }
-                    }
-                }
-                JsonNode directBooks = tab.get("books");
-                if (books.isEmpty() && directBooks != null && directBooks.isArray()) {
-                    for (JsonNode bookNode : directBooks) {
-                        books.add(parseBookItem(bookNode));
-                    }
-                }
+                List<FQSearchResponse.BookItem> books = parseBooksFromTab(tab);
 
                 if (!books.isEmpty()) {
                     searchResponse.setBooks(books);
@@ -104,11 +57,7 @@ public final class FQSearchResponseParser {
                         searchResponse.setHasMore(Boolean.TRUE.equals(hm));
                     }
                     if (Texts.isBlank(searchResponse.getSearchId())) {
-                        String tabSearchId = Texts.firstNonBlank(
-                            tab.path("search_id").asText(""),
-                            tab.path("searchId").asText(""),
-                            tab.path("search_id_str").asText("")
-                        );
+                        String tabSearchId = searchIdOf(tab);
                         searchResponse.setSearchId(tabSearchId);
                     }
                     break;
@@ -116,19 +65,12 @@ public final class FQSearchResponseParser {
             }
         }
 
-        if (searchResponse.getBooks() == null || searchResponse.getBooks().isEmpty()) {
-            JsonNode booksNode = null;
-            if (dataNode != null && dataNode.path("books").isArray()) {
-                booksNode = dataNode.path("books");
-            } else if (jsonResponse != null && jsonResponse.path("books").isArray()) {
-                booksNode = jsonResponse.path("books");
-            }
+        if (!hasBooks(searchResponse)) {
+            JsonNode booksNode = booksNodeOf(dataNode, jsonResponse);
 
             if (booksNode != null && booksNode.isArray()) {
                 List<FQSearchResponse.BookItem> books = new ArrayList<>();
-                for (JsonNode bookNode : booksNode) {
-                    books.add(parseBookItem(bookNode));
-                }
+                addBooksFromArray(booksNode, books);
                 searchResponse.setBooks(books);
 
                 if (searchResponse.getTotal() == null) {
@@ -150,14 +92,100 @@ public final class FQSearchResponseParser {
 
         if (Texts.isBlank(searchResponse.getSearchId())) {
             String fallback = Texts.firstNonBlank(
-                dataNode != null ? dataNode.path("search_id").asText("") : "",
-                dataNode != null ? dataNode.path("searchId").asText("") : "",
-                jsonResponse != null ? jsonResponse.path("search_id").asText("") : "",
-                jsonResponse != null ? jsonResponse.path("searchId").asText("") : ""
+                searchIdOf(dataNode),
+                searchIdOf(jsonResponse)
             );
             searchResponse.setSearchId(fallback);
         }
         return searchResponse;
+    }
+
+    private static String textOf(JsonNode node, String fieldName) {
+        if (node == null) {
+            return "";
+        }
+        return node.path(fieldName).asText("");
+    }
+
+    private static JsonNode dataNodeOf(JsonNode root) {
+        return root == null ? null : root.path("data");
+    }
+
+    private static JsonNode fieldOf(JsonNode node, String fieldName) {
+        return node == null ? null : node.get(fieldName);
+    }
+
+    private static JsonNode firstArray(JsonNode... nodes) {
+        if (nodes == null) {
+            return null;
+        }
+        for (JsonNode node : nodes) {
+            if (node != null && node.isArray()) {
+                return node;
+            }
+        }
+        return null;
+    }
+
+    private static JsonNode searchTabsOf(JsonNode root, JsonNode dataNode) {
+        return firstArray(
+            fieldOf(root, "search_tabs"),
+            fieldOf(dataNode, "search_tabs"),
+            fieldOf(root, "searchTabs"),
+            fieldOf(dataNode, "searchTabs")
+        );
+    }
+
+    private static JsonNode booksNodeOf(JsonNode dataNode, JsonNode root) {
+        return firstArray(
+            dataNode == null ? null : dataNode.path("books"),
+            root == null ? null : root.path("books")
+        );
+    }
+
+    private static boolean hasBooks(FQSearchResponse searchResponse) {
+        if (searchResponse == null) {
+            return false;
+        }
+        List<FQSearchResponse.BookItem> books = searchResponse.getBooks();
+        return books != null && !books.isEmpty();
+    }
+
+    private static void addBooksFromArray(JsonNode booksNode, List<FQSearchResponse.BookItem> books) {
+        if (booksNode == null || !booksNode.isArray()) {
+            return;
+        }
+        for (JsonNode bookNode : booksNode) {
+            books.add(parseBookItem(bookNode));
+        }
+    }
+
+    private static List<FQSearchResponse.BookItem> parseBooksFromTab(JsonNode tab) {
+        List<FQSearchResponse.BookItem> books = new ArrayList<>();
+        JsonNode tabData = fieldOf(tab, "data");
+        if (tabData != null && tabData.isArray()) {
+            for (JsonNode cell : tabData) {
+                JsonNode bookData = fieldOf(cell, "book_data");
+                if (bookData == null || !bookData.isArray()) {
+                    continue;
+                }
+                addBooksFromArray(bookData, books);
+            }
+        }
+
+        JsonNode directBooks = fieldOf(tab, "books");
+        if (books.isEmpty()) {
+            addBooksFromArray(directBooks, books);
+        }
+        return books;
+    }
+
+    private static String searchIdOf(JsonNode node) {
+        return Texts.firstNonBlank(
+            textOf(node, "search_id"),
+            textOf(node, "searchId"),
+            textOf(node, "search_id_str")
+        );
     }
 
     private static FQSearchResponse.BookItem parseBookItem(JsonNode bookNode) {
@@ -184,6 +212,45 @@ public final class FQSearchResponseParser {
         return book;
     }
 
+    public static String deepFindSearchId(JsonNode root) {
+        if (root == null) {
+            return "";
+        }
+
+        String direct = searchIdOf(root);
+        if (Texts.hasText(direct)) {
+            return direct;
+        }
+
+        Deque<JsonNode> stack = new ArrayDeque<>();
+        stack.push(root);
+        while (!stack.isEmpty()) {
+            JsonNode node = stack.pop();
+            if (node == null) {
+                continue;
+            }
+
+            if (node.isObject()) {
+                String found = searchIdOf(node);
+                if (Texts.hasText(found)) {
+                    return found;
+                }
+                node.fieldNames().forEachRemaining(name -> {
+                    JsonNode child = node.get(name);
+                    if (child != null) {
+                        stack.push(child);
+                    }
+                });
+            } else if (node.isArray()) {
+                for (JsonNode child : node) {
+                    stack.push(child);
+                }
+            }
+        }
+
+        return "";
+    }
+
     private static Boolean boolFromNode(JsonNode node) {
         if (node == null || node.isMissingNode() || node.isNull()) {
             return null;
@@ -194,8 +261,8 @@ public final class FQSearchResponseParser {
         if (node.isNumber()) {
             return node.intValue() != 0;
         }
-        String s = node.asText("").trim();
-        if (s.isEmpty() || "null".equalsIgnoreCase(s)) {
+        String s = Texts.trimToNull(node.asText(""));
+        if (s == null || "null".equalsIgnoreCase(s)) {
             return null;
         }
         if ("1".equals(s) || "true".equalsIgnoreCase(s)) {

@@ -3,80 +3,95 @@ package com.anjia.unidbgserver.service;
 import com.anjia.unidbgserver.config.FQApiProperties;
 import com.anjia.unidbgserver.config.FQDownloadProperties;
 import com.anjia.unidbgserver.constants.FQConstants;
-import com.anjia.unidbgserver.dto.*;
+import com.anjia.unidbgserver.dto.FQDirectoryRequest;
+import com.anjia.unidbgserver.dto.FQDirectoryResponse;
+import com.anjia.unidbgserver.dto.FQNovelResponse;
+import com.anjia.unidbgserver.dto.FQSearchRequest;
+import com.anjia.unidbgserver.dto.FQSearchResponse;
+import com.anjia.unidbgserver.dto.FqVariable;
 import com.anjia.unidbgserver.utils.FQApiUtils;
 import com.anjia.unidbgserver.utils.FQDirectoryResponseTransformer;
 import com.anjia.unidbgserver.utils.FQSearchResponseParser;
-import com.anjia.unidbgserver.utils.GzipUtils;
 import com.anjia.unidbgserver.utils.LocalCacheFactory;
 import com.anjia.unidbgserver.utils.ProcessLifecycle;
-import com.anjia.unidbgserver.utils.SearchIdExtractor;
+import com.anjia.unidbgserver.utils.RetryBackoff;
 import com.anjia.unidbgserver.utils.Texts;
 import com.github.benmanes.caffeine.cache.Cache;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import lombok.extern.slf4j.Slf4j;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.BeanUtils;
-import org.springframework.http.*;
+import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
-import org.springframework.web.client.RestTemplate;
 
-import javax.annotation.PostConstruct;
-import javax.annotation.Resource;
-import java.net.URI;
-import java.util.*;
-import java.util.concurrent.ThreadLocalRandom;
+import jakarta.annotation.PostConstruct;
+import java.util.List;
+import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executor;
+import java.util.concurrent.ThreadLocalRandom;
 import java.util.function.Predicate;
 import java.util.function.Supplier;
 
-/**
- * FQ书籍搜索和目录服务
- * 提供书籍搜索、目录获取等功能
- */
-@Slf4j
 @Service
 public class FQSearchService {
 
-    @Resource(name = "fqEncryptWorker")
-    private FQEncryptServiceWorker fqEncryptServiceWorker;
+    private static final Logger log = LoggerFactory.getLogger(FQSearchService.class);
+    private static final String REASON_SEARCH_WITH_ID_FAIL = "SEARCH_WITH_ID_FAIL";
+    private static final String REASON_SEARCH_PHASE1_FAIL = "SEARCH_PHASE1_FAIL";
+    private static final String REASON_SEARCH_NO_SEARCH_ID = "SEARCH_NO_SEARCH_ID";
+    private static final String REASON_SEARCH_PHASE2_FAIL = "SEARCH_PHASE2_FAIL";
+    private static final String REASON_SEARCH_EXCEPTION = "SEARCH_EXCEPTION";
+    private static final String ERROR_NO_SEARCH_ID =
+        "上游未返回search_id（可能风控/上游异常），请稍后重试";
+    private static final int RETRY_MAX_BACKOFF_EXPONENT = 10;
+    private static final long RETRY_JITTER_MIN_MS = 150L;
+    private static final long RETRY_JITTER_MAX_MS = 450L;
+    private static final int SEARCH_ID_DEBUG_SNIPPET_LENGTH = 1200;
+    private static final int UPSTREAM_BODY_DEBUG_MAX_LENGTH = 800;
+    private static final long HIGH_FREQ_LOG_COOLDOWN_MS = 60_000L;
 
-    @Resource
-    private FQApiProperties fqApiProperties;
-
-    @Resource
-    private FQApiUtils fqApiUtils;
-
-    @Resource
-    private UpstreamRateLimiter upstreamRateLimiter;
-
-    @Resource
-    private FQDeviceRotationService deviceRotationService;
-
-    @Resource
-    private AutoRestartService autoRestartService;
-
-    @Resource
-    private FQDownloadProperties downloadProperties;
-
-    @Resource
-    private RestTemplate restTemplate;
-
-    @Resource
-    private ObjectMapper objectMapper;
-
-    @Resource
-    private FQSearchRequestEnricher searchRequestEnricher;
-
-    @Resource(name = "applicationTaskExecutor")
-    private Executor taskExecutor;
+    private final FQApiProperties fqApiProperties;
+    private final FQApiUtils fqApiUtils;
+    private final FQDeviceRotationService deviceRotationService;
+    private final AutoRestartService autoRestartService;
+    private final FQDownloadProperties downloadProperties;
+    private final ObjectMapper objectMapper;
+    private final FQSearchRequestEnricher searchRequestEnricher;
+    private final UpstreamSignedRequestService upstreamSignedRequestService;
+    @Qualifier("applicationTaskExecutor")
+    private final Executor taskExecutor;
 
     private Cache<String, FQSearchResponse> searchCache;
     private Cache<String, FQDirectoryResponse> directoryApiCache;
     private final ConcurrentHashMap<String, CompletableFuture<FQNovelResponse<FQSearchResponse>>> inflightSearch = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<String, CompletableFuture<FQNovelResponse<FQDirectoryResponse>>> inflightDirectory = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<String, Long> highFreqLogTimestamps = new ConcurrentHashMap<>();
+
+    public FQSearchService(
+        FQApiProperties fqApiProperties,
+        FQApiUtils fqApiUtils,
+        FQDeviceRotationService deviceRotationService,
+        AutoRestartService autoRestartService,
+        FQDownloadProperties downloadProperties,
+        ObjectMapper objectMapper,
+        FQSearchRequestEnricher searchRequestEnricher,
+        UpstreamSignedRequestService upstreamSignedRequestService,
+        @Qualifier("applicationTaskExecutor") Executor taskExecutor
+    ) {
+        this.fqApiProperties = fqApiProperties;
+        this.fqApiUtils = fqApiUtils;
+        this.deviceRotationService = deviceRotationService;
+        this.autoRestartService = autoRestartService;
+        this.downloadProperties = downloadProperties;
+        this.objectMapper = objectMapper;
+        this.searchRequestEnricher = searchRequestEnricher;
+        this.upstreamSignedRequestService = upstreamSignedRequestService;
+        this.taskExecutor = taskExecutor;
+    }
 
     @PostConstruct
     public void initCaches() {
@@ -88,59 +103,27 @@ public class FQSearchService {
         this.directoryApiCache = LocalCacheFactory.build(directoryMax, directoryTtl);
     }
 
-    private static String snippet(String value, int maxLen) {
-        if (value == null) return "";
-        if (value.length() <= maxLen) return value;
-        return value.substring(0, Math.max(0, maxLen)) + "...";
-    }
-
-    private static boolean hasBooks(FQNovelResponse<FQSearchResponse> response) {
-        if (response == null || response.getData() == null) {
-            return false;
-        }
-        List<FQSearchResponse.BookItem> books = response.getData().getBooks();
-        return books != null && !books.isEmpty();
-    }
-
-    private static String extractSearchId(FQNovelResponse<FQSearchResponse> response) {
-        if (response == null || response.getData() == null) {
-            return "";
-        }
-        String id = response.getData().getSearchId();
-        return id == null ? "" : id.trim();
-    }
-
-    private void sleepRetryBackoff(int attempt) {
-        long base = Math.max(0L, downloadProperties.getRetryDelayMs());
-        long max = Math.max(base, downloadProperties.getRetryMaxDelayMs());
-        long delay = base;
-        for (int i = 1; i < attempt; i++) {
-            delay = Math.min(max, delay * 2);
-        }
-        long jitter = ThreadLocalRandom.current().nextLong(150L, 450L);
-        long total = Math.min(max, delay + jitter);
-        if (total <= 0) {
-            return;
-        }
-        try {
-            Thread.sleep(total);
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-        }
-    }
-
-    /**
-     * 获取默认FQ变量（延迟初始化）
-     */
-    private FqVariable getDefaultFqVariable() {
-        return new FqVariable(fqApiProperties);
-    }
-
     private static String normalizeCachePart(String value) {
-        if (value == null) {
-            return "";
+        return Texts.trimToEmpty(value);
+    }
+
+    private static int intOrDefault(Integer value, int defaultValue) {
+        return value != null ? value : defaultValue;
+    }
+
+    private static Integer nonZeroUpstreamCode(JsonNode rootNode) {
+        int upstreamCode = rootNode == null || !rootNode.has("code") ? 0 : rootNode.path("code").asInt(0);
+        return upstreamCode == 0 ? null : upstreamCode;
+    }
+
+    private static String upstreamMessageOrDefault(JsonNode rootNode, String defaultValue) {
+        return rootNode == null ? defaultValue : rootNode.path("message").asText(defaultValue);
+    }
+
+    private void logUpstreamBodyDebug(String prefix, String responseBody) {
+        if (log.isDebugEnabled()) {
+            log.debug("{}: {}", prefix, Texts.truncate(responseBody, UPSTREAM_BODY_DEBUG_MAX_LENGTH));
         }
-        return value.trim();
     }
 
     private static String buildSearchCacheKey(FQSearchRequest request) {
@@ -151,9 +134,9 @@ public class FQSearchService {
         if (query.isEmpty()) {
             return null;
         }
-        int offset = request.getOffset() != null ? request.getOffset() : 0;
-        int count = request.getCount() != null ? request.getCount() : 20;
-        int tabType = request.getTabType() != null ? request.getTabType() : 1;
+        int offset = intOrDefault(request.getOffset(), 0);
+        int count = intOrDefault(request.getCount(), 20);
+        int tabType = intOrDefault(request.getTabType(), 1);
         String searchId = normalizeCachePart(request.getSearchId());
         return query + "|" + offset + "|" + count + "|" + tabType + "|" + searchId;
     }
@@ -166,60 +149,79 @@ public class FQSearchService {
         if (bookId.isEmpty()) {
             return null;
         }
-        int bookType = request.getBookType() != null ? request.getBookType() : 0;
+        int bookType = intOrDefault(request.getBookType(), 0);
         boolean minimalResponse = Boolean.TRUE.equals(request.getMinimalResponse());
-        boolean needVersion = minimalResponse
-            ? false
-            : (request.getNeedVersion() == null || request.getNeedVersion());
+        boolean needVersion = !minimalResponse && (request.getNeedVersion() == null || request.getNeedVersion());
         String itemMd5 = normalizeCachePart(request.getItemDataListMd5());
         String catalogMd5 = normalizeCachePart(request.getCatalogDataMd5());
         String bookInfoMd5 = normalizeCachePart(request.getBookInfoMd5());
         return bookId + "|" + bookType + "|" + needVersion + "|" + minimalResponse + "|" + itemMd5 + "|" + catalogMd5 + "|" + bookInfoMd5;
     }
 
-    private static boolean isSearchCacheable(FQNovelResponse<FQSearchResponse> response) {
-        return response != null
-            && response.getCode() != null
-            && response.getCode() == 0
-            && response.getData() != null;
+    private static boolean isResponseSuccess(FQNovelResponse<?> response) {
+        return response != null && response.getCode() != null && response.getCode() == 0;
     }
 
-    private static boolean isDirectoryCacheable(FQNovelResponse<FQDirectoryResponse> response) {
-        return response != null
-            && response.getCode() != null
-            && response.getCode() == 0
-            && response.getData() != null;
+    private static boolean isResponseSuccessWithData(FQNovelResponse<?> response) {
+        return isResponseSuccess(response) && response.getData() != null;
     }
 
-    private static final class UpstreamGetResult {
-        private final ResponseEntity<byte[]> response;
-        private final String responseBody;
-        private final JsonNode jsonBody;
+    private static String extractSearchId(FQNovelResponse<FQSearchResponse> response) {
+        return response != null && response.getData() != null ? Texts.trimToEmpty(response.getData().getSearchId()) : "";
+    }
 
-        private UpstreamGetResult(ResponseEntity<byte[]> response, String responseBody, JsonNode jsonBody) {
-            this.response = response;
-            this.responseBody = responseBody;
-            this.jsonBody = jsonBody;
+    private static boolean hasBooks(FQNovelResponse<FQSearchResponse> response) {
+        List<FQSearchResponse.BookItem> books = response == null || response.getData() == null ? null : response.getData().getBooks();
+        return books != null && !books.isEmpty();
+    }
+
+    private static <T> FQNovelResponse<T> signerFailResponse() {
+        return FQNovelResponse.error("签名生成失败");
+    }
+
+    private static FQNovelResponse<FQDirectoryResponse> directoryFailure(String reason) {
+        return FQNovelResponse.error("获取书籍目录失败: " + reason);
+    }
+
+    private static <T> FQNovelResponse<T> shuttingDownIfNeeded() {
+        return ProcessLifecycle.isShuttingDown()
+            ? FQNovelResponse.error("服务正在退出中，请稍后重试")
+            : null;
+    }
+
+    private static <T> CompletableFuture<FQNovelResponse<T>> completedShuttingDownIfNeeded() {
+        FQNovelResponse<T> response = shuttingDownIfNeeded();
+        return response == null ? null : CompletableFuture.completedFuture(response);
+    }
+
+    private void recordSearchOutcome(FQNovelResponse<?> response, String failureReason) {
+        if (isResponseSuccess(response)) {
+            autoRestartService.recordSuccess();
+        } else {
+            autoRestartService.recordFailure(failureReason);
         }
     }
 
-    private UpstreamGetResult executeSignedGet(String fullUrl, Map<String, String> headers, String signatureFailLog) throws Exception {
-        Map<String, String> signedHeaders = fqEncryptServiceWorker.generateSignatureHeadersSync(fullUrl, headers);
-        if (signedHeaders == null || signedHeaders.isEmpty()) {
-            log.error("{} - url: {}", signatureFailLog, fullUrl);
-            return null;
+    private boolean shouldLogHighFreq(String key) {
+        long now = System.currentTimeMillis();
+        long last = highFreqLogTimestamps.getOrDefault(key, 0L);
+        if (now - last < HIGH_FREQ_LOG_COOLDOWN_MS) {
+            return false;
         }
+        highFreqLogTimestamps.put(key, now);
+        return true;
+    }
 
-        HttpHeaders httpHeaders = new HttpHeaders();
-        headers.forEach(httpHeaders::set);
-        signedHeaders.forEach(httpHeaders::set);
-
-        HttpEntity<String> entity = new HttpEntity<>(httpHeaders);
-        upstreamRateLimiter.acquire();
-        ResponseEntity<byte[]> response = restTemplate.exchange(URI.create(fullUrl), HttpMethod.GET, entity, byte[].class);
-        String responseBody = GzipUtils.decodeUpstreamResponse(response);
-        JsonNode jsonBody = objectMapper.readTree(responseBody);
-        return new UpstreamGetResult(response, responseBody, jsonBody);
+    private UpstreamSignedRequestService.UpstreamJsonResult executeSignedJsonGetWithFailureLog(
+        String fullUrl,
+        Map<String, String> headers,
+        String failureScene
+    ) throws Exception {
+        UpstreamSignedRequestService.UpstreamJsonResult upstream = upstreamSignedRequestService.executeSignedJsonGet(fullUrl, headers);
+        if (upstream == null) {
+            log.error("签名生成失败，终止{} - url: {}", failureScene, fullUrl);
+        }
+        return upstream;
     }
 
     private <T> CompletableFuture<FQNovelResponse<T>> loadWithRequestCache(
@@ -276,15 +278,10 @@ public class FQSearchService {
         return created;
     }
 
-    /**
-     * 搜索书籍 - 增强版，支持两阶段搜索
-     *
-     * @param searchRequest 搜索请求参数
-     * @return 搜索结果
-     */
     public CompletableFuture<FQNovelResponse<FQSearchResponse>> searchBooksEnhanced(FQSearchRequest searchRequest) {
-        if (ProcessLifecycle.isShuttingDown()) {
-            return CompletableFuture.completedFuture(FQNovelResponse.error("服务正在退出中，请稍后重试"));
+        CompletableFuture<FQNovelResponse<FQSearchResponse>> shuttingDown = completedShuttingDownIfNeeded();
+        if (shuttingDown != null) {
+            return shuttingDown;
         }
 
         String cacheKey = buildSearchCacheKey(searchRequest);
@@ -293,7 +290,7 @@ public class FQSearchService {
             searchCache,
             inflightSearch,
             () -> searchBooksEnhancedInternal(searchRequest),
-            FQSearchService::isSearchCacheable,
+            FQSearchService::isResponseSuccessWithData,
             autoRestartService::recordSuccess,
             "搜索"
         );
@@ -301,92 +298,81 @@ public class FQSearchService {
 
     private FQNovelResponse<FQSearchResponse> searchBooksEnhancedInternal(FQSearchRequest searchRequest) {
         try {
-            if (ProcessLifecycle.isShuttingDown()) {
-                return FQNovelResponse.error("服务正在退出中，请稍后重试");
+            FQNovelResponse<FQSearchResponse> shuttingDown = shuttingDownIfNeeded();
+            if (shuttingDown != null) {
+                return shuttingDown;
             }
 
             if (searchRequest == null) {
                 return FQNovelResponse.error("搜索请求不能为空");
             }
+            FQSearchRequest enrichedRequest = copyRequest(searchRequest);
+            searchRequestEnricher.enrich(enrichedRequest);
 
-            searchRequestEnricher.enrich(searchRequest);
-
-            // 如果用户已经提供了search_id，直接进行搜索
-            if (Texts.hasText(searchRequest.getSearchId())) {
-                FQNovelResponse<FQSearchResponse> response = performSearchWithId(searchRequest);
-                if (response != null && response.getCode() != null && response.getCode() == 0) {
-                    autoRestartService.recordSuccess();
-                } else {
-                    autoRestartService.recordFailure("SEARCH_WITH_ID_FAIL");
-                }
+            if (Texts.hasText(enrichedRequest.getSearchId())) {
+                enrichedRequest.setIsFirstEnterSearch(false);
+                FQNovelResponse<FQSearchResponse> response = performSearchInternal(enrichedRequest);
+                recordSearchOutcome(response, REASON_SEARCH_WITH_ID_FAIL);
                 return response;
             }
 
-            // 第一阶段：获取search_id
-            FQSearchRequest firstRequest = createFirstPhaseRequest(searchRequest);
+            FQSearchRequest firstRequest = copyRequest(enrichedRequest);
+            firstRequest.setIsFirstEnterSearch(true);
+            firstRequest.setLastSearchPageInterval(FQConstants.Search.PHASE1_LAST_SEARCH_PAGE_INTERVAL);
             FQNovelResponse<FQSearchResponse> firstResponse = performSearchInternal(firstRequest);
-
-            if (firstResponse.getCode() != 0) {
-                // 某些风控/异常场景下，上游可能返回非 0；尝试切换设备后再试一次
-                if (shouldRotate(firstResponse.getMessage())) {
-                    DeviceInfo rotated = deviceRotationService.rotateIfNeeded("SEARCH_PHASE1_FAIL");
-                    if (rotated != null) {
-                        firstResponse = performSearchInternal(firstRequest);
-                        if (firstResponse.getCode() == 0) {
-                            // 继续走后续逻辑
-                        } else {
-                            log.warn("第一阶段搜索失败 - code: {}, message: {}", firstResponse.getCode(), firstResponse.getMessage());
-                            autoRestartService.recordFailure("SEARCH_PHASE1_FAIL");
-                            return firstResponse;
-                        }
-                    } else {
-                        log.warn("第一阶段搜索失败 - code: {}, message: {}", firstResponse.getCode(), firstResponse.getMessage());
-                        autoRestartService.recordFailure("SEARCH_PHASE1_FAIL");
-                        return firstResponse;
-                    }
+            if (!isResponseSuccess(firstResponse)
+                && UpstreamSignedRequestService.isLikelyRiskControl(firstResponse != null ? firstResponse.getMessage() : null)
+                && deviceRotationService.rotateIfNeeded(REASON_SEARCH_PHASE1_FAIL) != null) {
+                firstResponse = performSearchInternal(firstRequest);
+            }
+            if (!isResponseSuccess(firstResponse)) {
+                if (shouldLogHighFreq("search.phase1.fail")) {
+                    log.warn("第一阶段搜索失败 - code: {}, message: {}",
+                        firstResponse != null ? firstResponse.getCode() : null,
+                        firstResponse != null ? firstResponse.getMessage() : null);
                 }
-                if (firstResponse.getCode() != 0) {
-                    log.warn("第一阶段搜索失败 - code: {}, message: {}", firstResponse.getCode(), firstResponse.getMessage());
-                    autoRestartService.recordFailure("SEARCH_PHASE1_FAIL");
-                    return firstResponse;
-                }
+                autoRestartService.recordFailure(REASON_SEARCH_PHASE1_FAIL);
+                return firstResponse != null ? firstResponse : FQNovelResponse.error("第一阶段搜索失败");
             }
 
-            String firstSearchId = extractSearchId(firstResponse);
-            if (Texts.isBlank(firstSearchId)) {
-                // 如果第一阶段已返回可用书籍列表（即使缺 search_id），直接返回，避免误判为“不可用”
-                if (hasBooks(firstResponse)) {
-                    log.info("第一阶段未返回search_id，但已返回书籍结果，跳过第二阶段");
-                    autoRestartService.recordSuccess();
-                    return firstResponse;
-                }
-
-                // 自愈：对“缺 search_id 且无结果”进行有限重试 + 轮换（最多轮换到池内其他设备）
-                int perDeviceRetries = Math.max(1, Math.min(2, downloadProperties.getMaxRetries()));
-                int maxDevices = Math.max(1, fqApiProperties.getDevicePool() != null ? fqApiProperties.getDevicePool().size() : 1);
-
+            String searchId = extractSearchId(firstResponse);
+            if (Texts.isBlank(searchId) && hasBooks(firstResponse)) {
+                log.info("第一阶段未返回search_id，但已返回书籍结果，跳过第二阶段");
+                autoRestartService.recordSuccess();
+                return firstResponse;
+            }
+            if (Texts.isBlank(searchId)) {
+                int perDeviceRetries = Math.max(
+                    1,
+                    Math.min(FQConstants.Search.MAX_RETRIES_PER_DEVICE, downloadProperties.getMaxRetries())
+                );
+                List<FQApiProperties.DeviceProfile> pool = fqApiProperties.getDevicePool();
+                int maxDevices = Math.max(1, pool == null ? 0 : pool.size());
                 FQNovelResponse<FQSearchResponse> candidate = firstResponse;
-                String candidateSearchId = "";
 
+                searchRetry:
                 for (int deviceAttempt = 0; deviceAttempt < maxDevices; deviceAttempt++) {
-                    if (deviceAttempt > 0) {
-                        DeviceInfo rotated = deviceRotationService.forceRotate("SEARCH_NO_SEARCH_ID");
-                        if (rotated == null) {
-                            break;
-                        }
+                    if (deviceAttempt > 0 && deviceRotationService.forceRotate(REASON_SEARCH_NO_SEARCH_ID) == null) {
+                        break;
                     }
-
                     for (int retryAttempt = 0; retryAttempt < perDeviceRetries; retryAttempt++) {
-                        if (deviceAttempt != 0 || retryAttempt != 0) {
-                            sleepRetryBackoff(deviceAttempt * perDeviceRetries + retryAttempt + 1);
+                        if (!(deviceAttempt == 0 && retryAttempt == 0)) {
+                            int retryOrdinal = deviceAttempt * perDeviceRetries + retryAttempt + 1;
+                            long delay = RetryBackoff.computeDelay(
+                                downloadProperties.getRetryDelayMs(),
+                                downloadProperties.getRetryMaxDelayMs(),
+                                retryOrdinal,
+                                RETRY_MAX_BACKOFF_EXPONENT,
+                                RETRY_JITTER_MIN_MS,
+                                RETRY_JITTER_MAX_MS
+                            );
+                            RetryBackoff.sleep(delay);
                             candidate = performSearchInternal(firstRequest);
                         }
 
-                        candidateSearchId = extractSearchId(candidate);
-                        if (Texts.hasText(candidateSearchId)) {
-                            firstResponse = candidate;
-                            firstSearchId = candidateSearchId;
-                            break;
+                        searchId = extractSearchId(candidate);
+                        if (Texts.hasText(searchId)) {
+                            break searchRetry;
                         }
                         if (hasBooks(candidate)) {
                             log.info("第一阶段未返回search_id，但重试后已返回书籍结果，跳过第二阶段");
@@ -394,103 +380,47 @@ public class FQSearchService {
                             return candidate;
                         }
                     }
-
-                    if (Texts.hasText(firstSearchId)) {
-                        break;
-                    }
-                }
-
-                if (Texts.isBlank(firstSearchId)) {
-                    log.warn("第一阶段搜索未返回search_id（可能风控/上游异常），建议稍后重试");
-                    autoRestartService.recordFailure("SEARCH_NO_SEARCH_ID");
-                    return FQNovelResponse.error("上游未返回search_id（可能风控/上游异常），请稍后重试");
                 }
             }
+            if (Texts.isBlank(searchId)) {
+                if (shouldLogHighFreq("search.no_search_id")) {
+                    log.warn("第一阶段搜索未返回search_id（可能风控/上游异常），建议稍后重试");
+                }
+                autoRestartService.recordFailure(REASON_SEARCH_NO_SEARCH_ID);
+                return FQNovelResponse.error(ERROR_NO_SEARCH_ID);
+            }
 
-            String searchId = firstSearchId;
-
-            // 随机延迟（模拟真实用户行为）
+            int lastSearchPageInterval;
             try {
                 long delay = ThreadLocalRandom.current().nextLong(
                     FQConstants.Search.MIN_SEARCH_DELAY_MS,
                     FQConstants.Search.MAX_SEARCH_DELAY_MS + 1
                 );
                 Thread.sleep(delay);
-                searchRequest.setLastSearchPageInterval((int) delay); // 设置间隔时间
+                lastSearchPageInterval = (int) delay;
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
-                log.warn("延迟被中断", e);
+                autoRestartService.recordFailure(REASON_SEARCH_EXCEPTION);
+                return FQNovelResponse.error("搜索流程被中断，请稍后重试");
             }
 
-            // 第二阶段：使用search_id进行搜索
-            FQSearchRequest secondRequest = createSecondPhaseRequest(searchRequest, searchId);
+            FQSearchRequest secondRequest = copyRequest(enrichedRequest);
+            secondRequest.setSearchId(searchId);
+            secondRequest.setIsFirstEnterSearch(false);
+            secondRequest.setLastSearchPageInterval(lastSearchPageInterval);
             FQNovelResponse<FQSearchResponse> secondResponse = performSearchInternal(secondRequest);
-
-            // 确保返回结果包含search_id
             if (secondResponse.getCode() == 0 && secondResponse.getData() != null) {
                 secondResponse.getData().setSearchId(searchId);
             }
-
-            if (secondResponse != null && secondResponse.getCode() != null && secondResponse.getCode() == 0) {
-                autoRestartService.recordSuccess();
-            } else {
-                autoRestartService.recordFailure("SEARCH_PHASE2_FAIL");
-            }
+            recordSearchOutcome(secondResponse, REASON_SEARCH_PHASE2_FAIL);
             return secondResponse;
 
         } catch (Exception e) {
-            String query = searchRequest != null ? searchRequest.getQuery() : null;
+            String query = searchRequest == null ? null : searchRequest.getQuery();
             log.error("增强搜索失败 - query: {}", query, e);
-            autoRestartService.recordFailure("SEARCH_EXCEPTION");
+            autoRestartService.recordFailure(REASON_SEARCH_EXCEPTION);
             return FQNovelResponse.error("增强搜索失败: " + e.getMessage());
         }
-    }
-
-    /**
-     * 创建第一阶段请求（获取search_id）
-     */
-    private FQSearchRequest createFirstPhaseRequest(FQSearchRequest originalRequest) {
-        FQSearchRequest firstRequest = new FQSearchRequest();
-
-        // 复制所有基本参数
-        copyBasicParameters(originalRequest, firstRequest);
-
-        // 第一阶段特定设置
-        firstRequest.setIsFirstEnterSearch(true);
-        firstRequest.setClientAbInfo(originalRequest.getClientAbInfo()); // 包含client_ab_info
-        firstRequest.setLastSearchPageInterval(0); // 第一次调用为0
-
-        // 确保passback与offset相同
-        ensurePassback(firstRequest);
-
-        return firstRequest;
-    }
-
-    /**
-     * 创建第二阶段请求（使用search_id）
-     */
-    private FQSearchRequest createSecondPhaseRequest(FQSearchRequest originalRequest, String searchId) {
-        FQSearchRequest secondRequest = new FQSearchRequest();
-
-        // 复制所有基本参数
-        copyBasicParameters(originalRequest, secondRequest);
-
-        // 第二阶段特定设置
-        secondRequest.setSearchId(searchId);
-        secondRequest.setIsFirstEnterSearch(false); // 第二次调用设为false
-        // 不设置client_ab_info（在buildSearchParams中会被跳过）
-
-        // 确保passback与offset相同
-        ensurePassback(secondRequest);
-
-        return secondRequest;
-    }
-
-    /**
-     * 复制基本参数
-     */
-    private void copyBasicParameters(FQSearchRequest source, FQSearchRequest target) {
-        BeanUtils.copyProperties(source, target);
     }
 
     private static void ensurePassback(FQSearchRequest request) {
@@ -499,115 +429,84 @@ public class FQSearchService {
         }
     }
 
-    /**
-     * 执行带search_id的搜索
-     */
-    private FQNovelResponse<FQSearchResponse> performSearchWithId(FQSearchRequest searchRequest) {
-        // 确保is_first_enter_search为false，不包含client_ab_info
-        searchRequest.setIsFirstEnterSearch(false);
-
-        searchRequestEnricher.enrich(searchRequest);
-
-        // 确保passback与offset相同
-        ensurePassback(searchRequest);
-
-        return performSearchInternal(searchRequest);
+    private static FQSearchRequest copyRequest(FQSearchRequest request) {
+        FQSearchRequest copied = new FQSearchRequest();
+        BeanUtils.copyProperties(request, copied);
+        ensurePassback(copied);
+        return copied;
     }
 
-    /**
-     * 执行实际的搜索请求
-     */
     private FQNovelResponse<FQSearchResponse> performSearchInternal(FQSearchRequest searchRequest) {
         try {
-            FqVariable var = getDefaultFqVariable();
-
-            // 构建搜索URL和参数
-            String url = fqApiUtils.getSearchApiBaseUrl()
-                + "/reading/bookapi/search/tab/v";
+            FqVariable var = new FqVariable(fqApiProperties);
+            String url = fqApiUtils.getSearchApiBaseUrl() + FQConstants.Search.TAB_PATH;
             Map<String, String> params = fqApiUtils.buildSearchParams(var, searchRequest);
             String fullUrl = fqApiUtils.buildUrlWithParams(url, params);
 
-            // 构建请求头
-            Map<String, String> headers = fqApiUtils.buildSearchHeaders();
-
-            UpstreamGetResult upstream = executeSignedGet(fullUrl, headers, "签名生成失败，终止请求");
+            UpstreamSignedRequestService.UpstreamJsonResult upstream = executeSignedJsonGetWithFailureLog(
+                fullUrl,
+                fqApiUtils.buildSearchHeaders(),
+                "请求"
+            );
             if (upstream == null) {
-                return FQNovelResponse.error("签名生成失败");
+                return signerFailResponse();
             }
 
-            ResponseEntity<byte[]> response = upstream.response;
-            String responseBody = upstream.responseBody;
-            JsonNode jsonResponse = upstream.jsonBody;
+            ResponseEntity<byte[]> response = upstream.getResponse();
+            String responseBody = upstream.getResponseBody();
+            JsonNode jsonResponse = upstream.getJsonBody();
 
-            // 上游如果有 code/message，优先按其判断是否成功
-            if (jsonResponse.has("code")) {
-                int upstreamCode = jsonResponse.path("code").asInt(0);
-                if (upstreamCode != 0) {
-                    String upstreamMessage = jsonResponse.path("message").asText("upstream error");
-                    log.warn("上游搜索接口返回失败 - code: {}, message: {}", upstreamCode, upstreamMessage);
-                    return FQNovelResponse.error(upstreamCode, upstreamMessage);
-                }
+            Integer upstreamCode = nonZeroUpstreamCode(jsonResponse);
+            if (upstreamCode != null) {
+                String upstreamMessage = upstreamMessageOrDefault(jsonResponse, "upstream error");
+                log.warn("上游搜索接口返回失败 - code: {}, message: {}", upstreamCode, upstreamMessage);
+                return FQNovelResponse.error(upstreamCode, upstreamMessage);
             }
 
-            int tabType = searchRequest.getTabType() != null ? searchRequest.getTabType() : 1;
+            int tabType = intOrDefault(searchRequest.getTabType(), 1);
             FQSearchResponse searchResponse = FQSearchResponseParser.parseSearchResponse(jsonResponse, tabType);
+            if (searchResponse == null) {
+                logUpstreamBodyDebug("搜索接口解析失败原始响应", responseBody);
+                return FQNovelResponse.error("搜索响应解析失败");
+            }
 
-            // 兜底：如果 parseSearchResponse 没取到 search_id，再做一次深度提取（含 root/data/log_pb 等）
-            if (searchResponse != null && Texts.isBlank(searchResponse.getSearchId())) {
-                String fromBody = SearchIdExtractor.deepFind(jsonResponse);
+            if (Texts.isBlank(searchResponse.getSearchId())) {
+                String fromBody = FQSearchResponseParser.deepFindSearchId(jsonResponse);
                 if (Texts.hasText(fromBody)) {
                     searchResponse.setSearchId(fromBody);
                 }
-            }
-
-            // 兜底：部分情况下 search_id 可能在响应头里
-            if (searchResponse != null && Texts.isBlank(searchResponse.getSearchId())) {
-                String fromHeader = Texts.firstNonBlank(
-                    response.getHeaders().getFirst("search_id"),
-                    response.getHeaders().getFirst("search-id"),
-                    response.getHeaders().getFirst("x-search-id"),
-                    response.getHeaders().getFirst("x-fq-search-id")
-                );
-                if (Texts.hasText(fromHeader)) {
-                    searchResponse.setSearchId(fromHeader);
+                if (Texts.isBlank(searchResponse.getSearchId())) {
+                    String fromHeader = response == null ? "" : Texts.firstNonBlank(
+                        response.getHeaders().getFirst("search_id"),
+                        response.getHeaders().getFirst("search-id"),
+                        response.getHeaders().getFirst("x-search-id"),
+                        response.getHeaders().getFirst("x-fq-search-id")
+                    );
+                    if (Texts.hasText(fromHeader)) {
+                        searchResponse.setSearchId(fromHeader);
+                    }
                 }
             }
-
-            if (Boolean.TRUE.equals(searchRequest.getIsFirstEnterSearch())
-                && (searchResponse == null || Texts.isBlank(searchResponse.getSearchId()))
+            if (searchRequest != null
+                && Boolean.TRUE.equals(searchRequest.getIsFirstEnterSearch())
+                && Texts.isBlank(searchResponse.getSearchId())
                 && log.isDebugEnabled()) {
-                log.debug("第一阶段搜索未返回search_id，原始响应: {}", snippet(responseBody, 1200));
+                log.debug("第一阶段搜索未返回search_id，原始响应: {}",
+                    Texts.truncate(responseBody, SEARCH_ID_DEBUG_SNIPPET_LENGTH));
             }
 
             return FQNovelResponse.success(searchResponse);
 
         } catch (Exception e) {
-            log.error("搜索请求失败 - query: {}", searchRequest.getQuery(), e);
+            log.error("搜索请求失败 - query: {}", searchRequest == null ? null : searchRequest.getQuery(), e);
             return FQNovelResponse.error("搜索请求失败: " + e.getMessage());
         }
     }
 
-    private static boolean shouldRotate(String message) {
-        if (Texts.isBlank(message)) {
-            return false;
-        }
-        String m = message.toLowerCase(Locale.ROOT);
-        return m.contains("illegal_access")
-            || m.contains("risk")
-            || m.contains("风控")
-            || m.contains("forbidden")
-            || m.contains("permission");
-    }
-
-    /**
-     * 获取书籍目录（增强版）
-     *
-     * @param directoryRequest 目录请求参数
-     * @return 书籍目录
-     */
     public CompletableFuture<FQNovelResponse<FQDirectoryResponse>> getBookDirectory(FQDirectoryRequest directoryRequest) {
-        if (ProcessLifecycle.isShuttingDown()) {
-            return CompletableFuture.completedFuture(FQNovelResponse.error("服务正在退出中，请稍后重试"));
+        CompletableFuture<FQNovelResponse<FQDirectoryResponse>> shuttingDown = completedShuttingDownIfNeeded();
+        if (shuttingDown != null) {
+            return shuttingDown;
         }
 
         String cacheKey = buildDirectoryCacheKey(directoryRequest);
@@ -616,7 +515,7 @@ public class FQSearchService {
             directoryApiCache,
             inflightDirectory,
             () -> getBookDirectoryInternal(directoryRequest),
-            FQSearchService::isDirectoryCacheable,
+            FQSearchService::isResponseSuccessWithData,
             null,
             "目录"
         );
@@ -624,71 +523,59 @@ public class FQSearchService {
 
     private FQNovelResponse<FQDirectoryResponse> getBookDirectoryInternal(FQDirectoryRequest directoryRequest) {
         try {
-            if (ProcessLifecycle.isShuttingDown()) {
-                return FQNovelResponse.error("服务正在退出中，请稍后重试");
+            FQNovelResponse<FQDirectoryResponse> shuttingDown = shuttingDownIfNeeded();
+            if (shuttingDown != null) {
+                return shuttingDown;
             }
 
             if (directoryRequest == null) {
                 return FQNovelResponse.error("目录请求不能为空");
             }
 
-            FqVariable var = getDefaultFqVariable();
-
-            // 构建目录URL和参数
-            String url = fqApiUtils.getSearchApiBaseUrl()
-                + "/reading/bookapi/directory/all_items/v";
+            FqVariable var = new FqVariable(fqApiProperties);
+            String url = fqApiUtils.getSearchApiBaseUrl() + FQConstants.Search.DIRECTORY_ALL_ITEMS_PATH;
             Map<String, String> params = fqApiUtils.buildDirectoryParams(var, directoryRequest);
             String fullUrl = fqApiUtils.buildUrlWithParams(url, params);
 
-            // 构建请求头
-            Map<String, String> headers = fqApiUtils.buildCommonHeaders();
-
-            UpstreamGetResult upstream = executeSignedGet(fullUrl, headers, "签名生成失败，终止目录请求");
+            UpstreamSignedRequestService.UpstreamJsonResult upstream = executeSignedJsonGetWithFailureLog(
+                fullUrl,
+                fqApiUtils.buildCommonHeaders(),
+                "目录请求"
+            );
             if (upstream == null) {
-                return FQNovelResponse.error("签名生成失败");
+                return signerFailResponse();
             }
 
-            String responseBody = upstream.responseBody;
-            JsonNode rootNode = upstream.jsonBody;
-            if (rootNode.has("code")) {
-                int upstreamCode = rootNode.path("code").asInt(0);
-                if (upstreamCode != 0) {
-                    String upstreamMessage = rootNode.path("message").asText("upstream error");
-                    if (log.isDebugEnabled()) {
-                        log.debug("目录接口上游失败原始响应: {}", responseBody.length() > 800 ? responseBody.substring(0, 800) + "..." : responseBody);
-                    }
-                    return FQNovelResponse.error(upstreamCode, upstreamMessage);
-                }
+            String responseBody = upstream.getResponseBody();
+            JsonNode rootNode = upstream.getJsonBody();
+            Integer upstreamCode = nonZeroUpstreamCode(rootNode);
+            if (upstreamCode != null) {
+                String upstreamMessage = upstreamMessageOrDefault(rootNode, "upstream error");
+                logUpstreamBodyDebug("目录接口上游失败原始响应", responseBody);
+                return FQNovelResponse.error(upstreamCode, upstreamMessage);
             }
 
-            JsonNode dataNode = rootNode.get("data");
-            if (dataNode == null || dataNode.isNull() || dataNode.isMissingNode()) {
-                String upstreamMessage = rootNode.path("message").asText("upstream response missing data");
-                if (log.isDebugEnabled()) {
-                    log.debug("目录接口上游缺少data原始响应: {}", responseBody.length() > 800 ? responseBody.substring(0, 800) + "..." : responseBody);
-                }
-                return FQNovelResponse.error("获取书籍目录失败: " + upstreamMessage);
+            JsonNode dataNode = rootNode.path("data");
+            if (dataNode.isMissingNode() || dataNode.isNull()) {
+                logUpstreamBodyDebug("目录接口上游缺少data原始响应", responseBody);
+                return directoryFailure(upstreamMessageOrDefault(rootNode, "upstream response missing data"));
             }
 
             FQDirectoryResponse directoryResponse = objectMapper.treeToValue(dataNode, FQDirectoryResponse.class);
             if (directoryResponse == null) {
-                String upstreamMessage = rootNode.path("message").asText("upstream parse error");
-                return FQNovelResponse.error("获取书籍目录失败: " + upstreamMessage);
+                return directoryFailure(upstreamMessageOrDefault(rootNode, "upstream parse error"));
             }
-
             if (Boolean.TRUE.equals(directoryRequest.getMinimalResponse())) {
                 FQDirectoryResponseTransformer.trimForMinimalResponse(directoryResponse);
             } else {
-                // 增强章节列表数据
                 FQDirectoryResponseTransformer.enhanceChapterList(directoryResponse);
             }
-
             return FQNovelResponse.success(directoryResponse);
 
         } catch (Exception e) {
-            String bookId = directoryRequest != null ? directoryRequest.getBookId() : null;
+            String bookId = directoryRequest == null ? null : directoryRequest.getBookId();
             log.error("获取书籍目录失败 - bookId: {}", bookId, e);
-            return FQNovelResponse.error("获取书籍目录失败: " + e.getMessage());
+            return directoryFailure(e.getMessage());
         }
     }
 

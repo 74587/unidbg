@@ -1,11 +1,8 @@
 package com.anjia.unidbgserver.dto;
 
-import lombok.Data;
-
 /**
  * FQ书籍目录请求DTO
  */
-@Data
 public class FQDirectoryRequest {
     
     /**
@@ -44,4 +41,60 @@ public class FQDirectoryRequest {
      * false: 返回完整目录数据
      */
     private Boolean minimalResponse = false;
+
+    public String getBookId() {
+        return bookId;
+    }
+
+    public void setBookId(String bookId) {
+        this.bookId = bookId;
+    }
+
+    public Integer getBookType() {
+        return bookType;
+    }
+
+    public void setBookType(Integer bookType) {
+        this.bookType = bookType;
+    }
+
+    public String getItemDataListMd5() {
+        return itemDataListMd5;
+    }
+
+    public void setItemDataListMd5(String itemDataListMd5) {
+        this.itemDataListMd5 = itemDataListMd5;
+    }
+
+    public String getCatalogDataMd5() {
+        return catalogDataMd5;
+    }
+
+    public void setCatalogDataMd5(String catalogDataMd5) {
+        this.catalogDataMd5 = catalogDataMd5;
+    }
+
+    public String getBookInfoMd5() {
+        return bookInfoMd5;
+    }
+
+    public void setBookInfoMd5(String bookInfoMd5) {
+        this.bookInfoMd5 = bookInfoMd5;
+    }
+
+    public Boolean getNeedVersion() {
+        return needVersion;
+    }
+
+    public void setNeedVersion(Boolean needVersion) {
+        this.needVersion = needVersion;
+    }
+
+    public Boolean getMinimalResponse() {
+        return minimalResponse;
+    }
+
+    public void setMinimalResponse(Boolean minimalResponse) {
+        this.minimalResponse = minimalResponse;
+    }
 }

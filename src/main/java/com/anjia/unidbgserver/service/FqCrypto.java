@@ -1,6 +1,7 @@
 package com.anjia.unidbgserver.service;
 
-import lombok.extern.slf4j.Slf4j;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import javax.crypto.Cipher;
 import javax.crypto.spec.IvParameterSpec;
@@ -18,8 +19,9 @@ import java.util.zip.GZIPInputStream;
  * FQNovel加密解密工具类
  * 基于 AES-128-CBC 加密算法
  */
-@Slf4j
 public class FqCrypto {
+
+    private static final Logger log = LoggerFactory.getLogger(FqCrypto.class);
     
     /**
      * 注册密钥的固定key

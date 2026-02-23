@@ -2,32 +2,38 @@ package com.anjia.unidbgserver.service;
 
 import com.anjia.unidbgserver.config.UnidbgProperties;
 import com.anjia.unidbgserver.unidbg.IdleFQ;
-import com.anjia.unidbgserver.utils.TempFileUtils;
 import com.anjia.unidbgserver.utils.ProcessLifecycle;
+import com.anjia.unidbgserver.utils.TempFileUtils;
+import com.anjia.unidbgserver.utils.Texts;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import lombok.extern.slf4j.Slf4j;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.Locale;
 import java.util.Map;
-import java.util.Set;
-import java.util.HashSet;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.regex.Pattern;
 
-@Slf4j
 public class FQEncryptService {
+
+    private static final Logger log = LoggerFactory.getLogger(FQEncryptService.class);
+    private static final ObjectMapper SHARED_OBJECT_MAPPER = new ObjectMapper();
+    private static final Pattern HEADER_COLON_PAIR = Pattern.compile("^[A-Za-z0-9-]{1,64}:\\s*.+$");
+    private static final String HEADER_X_ARGUS = "x-argus";
+    private static final String HEADER_X_GORGON = "x-gorgon";
+    private static final int RAW_LOG_MAX_LENGTH = 200;
 
     private final UnidbgProperties properties;
     private final ReentrantLock lock = new ReentrantLock();
     private volatile IdleFQ idleFQ;
-    private final ObjectMapper objectMapper = new ObjectMapper();
-    private static final Pattern HEADER_COLON_PAIR = Pattern.compile("^[A-Za-z0-9-]{1,64}:\\s*.+$");
+    private final ObjectMapper objectMapper;
 
     public FQEncryptService(UnidbgProperties properties) {
         this.properties = properties;
+        this.objectMapper = SHARED_OBJECT_MAPPER;
         this.idleFQ = createIdleFq();
         log.info("FQ签名服务初始化完成");
     }
@@ -71,26 +77,17 @@ public class FQEncryptService {
                 return Collections.emptyMap();
             }
 
-            log.debug("准备生成FQ签名 - URL: {}", url);
-            log.debug("准备生成FQ签名 - Headers: {}", maskSensitiveHeaders(headers));
-
-            IdleFQ signer = this.idleFQ;
-            if (signer == null) {
-                lock.lock();
-                try {
-                    if (this.idleFQ == null) {
-                        this.idleFQ = createIdleFq();
-                    }
-                    signer = this.idleFQ;
-                } finally {
-                    lock.unlock();
-                }
+            if (log.isDebugEnabled()) {
+                log.debug("准备生成FQ签名 - URL: {}", url);
+                log.debug("准备生成FQ签名 - Headers: {}", maskSensitiveHeaders(headers));
             }
+
+            IdleFQ signer = ensureSigner();
 
             // 调用IdleFQ的签名生成方法
             String signatureResult = signer.generateSignature(url, headers);
 
-            if (signatureResult == null || signatureResult.isEmpty()) {
+            if (!Texts.hasText(signatureResult)) {
                 log.error("签名生成失败，返回结果为空");
                 return Collections.emptyMap();
             }
@@ -100,12 +97,31 @@ public class FQEncryptService {
 
             removeHeaderIgnoreCase(result, "X-Neptune");
 
-            log.debug("FQ签名生成成功: {}", result);
+            if (log.isDebugEnabled()) {
+                log.debug("FQ签名生成成功: {}", result);
+            }
             return result;
 
         } catch (Exception e) {
             log.error("生成FQ签名失败", e);
             return Collections.emptyMap();
+        }
+    }
+
+    private IdleFQ ensureSigner() {
+        IdleFQ signer = this.idleFQ;
+        if (signer != null) {
+            return signer;
+        }
+
+        lock.lock();
+        try {
+            if (this.idleFQ == null) {
+                this.idleFQ = createIdleFq();
+            }
+            return this.idleFQ;
+        } finally {
+            lock.unlock();
         }
     }
 
@@ -121,23 +137,7 @@ public class FQEncryptService {
             return generateSignatureHeaders(url, "");
         }
 
-        // 将Map转换为\r\n分隔的字符串格式
-        // 修复问题 #11：预估StringBuilder容量，提高性能
-        // 每个header约为 key(20) + "\r\n"(2) + value(50) + "\r\n"(2) = 74 chars
-        int estimatedCapacity = headerMap.size() * 74;
-        StringBuilder headerBuilder = new StringBuilder(estimatedCapacity);
-        for (Map.Entry<String, String> entry : headerMap.entrySet()) {
-            headerBuilder.append(entry.getKey()).append("\r\n")
-                .append(entry.getValue()).append("\r\n");
-        }
-
-        // 移除最后的\r\n
-        String headers = headerBuilder.toString();
-        if (headers.endsWith("\r\n")) {
-            headers = headers.substring(0, headers.length() - 2);
-        }
-
-        return generateSignatureHeaders(url, headers);
+        return generateSignatureHeaders(url, buildSignatureInputHeaders(headerMap));
     }
 
     /**
@@ -149,7 +149,7 @@ public class FQEncryptService {
             return Collections.emptyMap();
         }
 
-        String normalized = signatureResult.replace("\r\n", "\n").replace('\r', '\n').trim();
+        String normalized = Texts.trimToEmpty(normalizeLineBreaks(signatureResult));
         if (normalized.isEmpty()) {
             return Collections.emptyMap();
         }
@@ -160,7 +160,7 @@ public class FQEncryptService {
                 Map<String, String> jsonMap = objectMapper.readValue(normalized, new TypeReference<Map<String, String>>() {});
                 return jsonMap != null ? new HashMap<>(jsonMap) : Collections.emptyMap();
             } catch (Exception ignored) {
-                // fallback to line-based parsing
+                // 继续按行格式解析
             }
         }
 
@@ -170,53 +170,19 @@ public class FQEncryptService {
         String[] lines = normalized.split("\n");
         Map<String, String> result = new HashMap<>();
 
-        boolean looksLikeColonPairs = false;
-        for (String line : lines) {
-            if (HEADER_COLON_PAIR.matcher(line.trim()).matches()) {
-                looksLikeColonPairs = true;
-                break;
-            }
-        }
-
-        if (looksLikeColonPairs) {
-            for (String line : lines) {
-                String trimmed = line.trim();
-                if (trimmed.isEmpty()) continue;
-                int idx = trimmed.indexOf(':');
-                if (idx <= 0) continue;
-                String key = trimmed.substring(0, idx).trim();
-                String value = trimmed.substring(idx + 1).trim();
-                if (!key.isEmpty()) {
-                    result.put(key, value);
-                }
-            }
+        if (looksLikeColonPairs(lines)) {
+            parseColonPairs(lines, result);
         } else if (lines.length >= 2 && lines.length % 2 == 0) {
-            for (int i = 0; i < lines.length - 1; i += 2) {
-                String key = lines[i].trim();
-                String value = lines[i + 1].trim();
-                if (!key.isEmpty()) {
-                    result.put(key, value);
-                }
-            }
+            parseAlternatingPairs(lines, result);
         } else {
             // 兜底：尝试按空白分隔的 key=value
-            for (String line : lines) {
-                String trimmed = line.trim();
-                if (trimmed.isEmpty()) continue;
-                int idx = trimmed.indexOf('=');
-                if (idx <= 0) continue;
-                String key = trimmed.substring(0, idx).trim();
-                String value = trimmed.substring(idx + 1).trim();
-                if (!key.isEmpty()) {
-                    result.put(key, value);
-                }
-            }
+            parseEqualsPairs(lines, result);
         }
 
         // 常见签名头部可能存在大小写差异，这里仅做存在性提示，不做强制
-        boolean hasArgus = result.keySet().stream().anyMatch(k -> "x-argus".equals(k.toLowerCase(Locale.ROOT)) || "x-gorgon".equals(k.toLowerCase(Locale.ROOT)));
+        boolean hasArgus = hasCommonSignatureHeader(result);
         if (!hasArgus) {
-            log.warn("签名结果解析后未发现常见签名头部，raw={}", normalized.length() > 200 ? normalized.substring(0, 200) + "..." : normalized);
+            log.warn("签名结果解析后未发现常见签名头部，raw={}", truncateForLog(normalized));
         }
 
         return result;
@@ -226,13 +192,13 @@ public class FQEncryptService {
         if (headers == null || headers.isEmpty()) {
             return headers;
         }
-        String normalized = headers.replace("\r\n", "\n").replace('\r', '\n');
+        String normalized = normalizeLineBreaks(headers);
         StringBuilder masked = new StringBuilder();
         String[] lines = normalized.split("\n");
         boolean redactNextValue = false;
         for (int i = 0; i < lines.length; i++) {
             String line = lines[i];
-            String trimmed = line.trim();
+            String trimmed = Texts.trimToEmpty(line);
             String lower = trimmed.toLowerCase(Locale.ROOT);
             if (redactNextValue) {
                 masked.append("[REDACTED]");
@@ -268,13 +234,92 @@ public class FQEncryptService {
             return;
         }
         String target = name.toLowerCase(Locale.ROOT);
-        Set<String> toRemove = new HashSet<>();
-        for (String key : headers.keySet()) {
-            if (key != null && key.toLowerCase(Locale.ROOT).equals(target)) {
-                toRemove.add(key);
+        headers.keySet().removeIf(key -> key != null && key.toLowerCase(Locale.ROOT).equals(target));
+    }
+
+    private static String normalizeLineBreaks(String value) {
+        return value.replace("\r\n", "\n").replace('\r', '\n');
+    }
+
+    private static boolean looksLikeColonPairs(String[] lines) {
+        for (String line : lines) {
+            if (HEADER_COLON_PAIR.matcher(Texts.trimToEmpty(line)).matches()) {
+                return true;
             }
         }
-        toRemove.forEach(headers::remove);
+        return false;
+    }
+
+    private static void parseColonPairs(String[] lines, Map<String, String> result) {
+        for (String line : lines) {
+            String trimmed = Texts.trimToEmpty(line);
+            if (trimmed.isEmpty()) {
+                continue;
+            }
+            int idx = trimmed.indexOf(':');
+            if (idx <= 0) {
+                continue;
+            }
+            putHeader(result, trimmed.substring(0, idx), trimmed.substring(idx + 1));
+        }
+    }
+
+    private static void parseAlternatingPairs(String[] lines, Map<String, String> result) {
+        for (int i = 0; i < lines.length - 1; i += 2) {
+            putHeader(result, lines[i], lines[i + 1]);
+        }
+    }
+
+    private static void parseEqualsPairs(String[] lines, Map<String, String> result) {
+        for (String line : lines) {
+            String trimmed = Texts.trimToEmpty(line);
+            if (trimmed.isEmpty()) {
+                continue;
+            }
+            int idx = trimmed.indexOf('=');
+            if (idx <= 0) {
+                continue;
+            }
+            putHeader(result, trimmed.substring(0, idx), trimmed.substring(idx + 1));
+        }
+    }
+
+    private static void putHeader(Map<String, String> result, String rawKey, String rawValue) {
+        String key = Texts.trimToEmpty(rawKey);
+        if (key.isEmpty()) {
+            return;
+        }
+        result.put(key, Texts.trimToEmpty(rawValue));
+    }
+
+    private static boolean hasCommonSignatureHeader(Map<String, String> headers) {
+        return headers.keySet().stream()
+            .filter(k -> k != null)
+            .map(k -> k.toLowerCase(Locale.ROOT))
+            .anyMatch(k -> HEADER_X_ARGUS.equals(k) || HEADER_X_GORGON.equals(k));
+    }
+
+    private static String truncateForLog(String value) {
+        if (value.length() <= RAW_LOG_MAX_LENGTH) {
+            return value;
+        }
+        return value.substring(0, RAW_LOG_MAX_LENGTH) + "...";
+    }
+
+    // 将 header map 转换为 unidbg signer 需要的 key\r\nvalue\r\n... 格式。
+    private static String buildSignatureInputHeaders(Map<String, String> headerMap) {
+        // 每个 header 约 key(20)+CRLF(2)+value(50)=72，条目间再加 CRLF(2)。
+        int estimatedCapacity = headerMap.size() * 74;
+        StringBuilder builder = new StringBuilder(estimatedCapacity);
+        boolean first = true;
+        for (Map.Entry<String, String> entry : headerMap.entrySet()) {
+            if (!first) {
+                builder.append("\r\n");
+            }
+            builder.append(entry.getKey()).append("\r\n").append(entry.getValue());
+            first = false;
+        }
+        return builder.toString();
     }
 
     /**

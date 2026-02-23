@@ -1,7 +1,6 @@
 package com.anjia.unidbgserver.service;
 
 import com.anjia.unidbgserver.config.FQDownloadProperties;
-import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 
 import java.util.concurrent.TimeUnit;
@@ -9,15 +8,18 @@ import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.locks.LockSupport;
 
 /**
- * 上游请求全局限流（按最小间隔）：
+ * 章节请求限流（按最小间隔）：
  * 通过 CAS 保证在多线程下请求间隔不被打穿。
  */
 @Component
-@RequiredArgsConstructor
 public class UpstreamRateLimiter {
 
     private final FQDownloadProperties downloadProperties;
     private final AtomicLong nextAllowedAtNanos = new AtomicLong(0L);
+
+    public UpstreamRateLimiter(FQDownloadProperties downloadProperties) {
+        this.downloadProperties = downloadProperties;
+    }
 
     public void acquire() {
         long intervalMs = downloadProperties.getRequestIntervalMs();

@@ -5,21 +5,21 @@ import com.anjia.unidbgserver.utils.ProcessLifecycle;
 import com.github.unidbg.worker.Worker;
 import com.github.unidbg.worker.WorkerPool;
 import com.github.unidbg.worker.WorkerPoolFactory;
-import lombok.SneakyThrows;
-import lombok.extern.slf4j.Slf4j;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 import java.util.Map;
-import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.locks.LockSupport;
 
-@Slf4j
 @Service("fqEncryptWorker")
 public class FQEncryptServiceWorker extends Worker {
+
+    private static final Logger log = LoggerFactory.getLogger(FQEncryptServiceWorker.class);
 
     private static final AtomicLong RESET_EPOCH = new AtomicLong(0L);
     private static final AtomicLong LAST_RESET_REQUEST_AT_MS = new AtomicLong(0L);
@@ -32,14 +32,6 @@ public class FQEncryptServiceWorker extends Worker {
     private WorkerPool pool;
     private FQEncryptService fqEncryptService;
     private long localResetEpoch = 0L;
-
-    @Autowired
-    public void init(UnidbgProperties unidbgProperties) {
-        this.unidbgProperties = unidbgProperties;
-        if (unidbgProperties != null) {
-            RESET_COOLDOWN_MS = Math.max(0L, unidbgProperties.getResetCooldownMs());
-        }
-    }
 
     public FQEncryptServiceWorker() {
         super(WorkerPoolFactory.create(FQEncryptServiceWorker::new, Runtime.getRuntime().availableProcessors()));
@@ -99,39 +91,6 @@ public class FQEncryptServiceWorker extends Worker {
     }
 
     /**
-     * 同步生成FQ签名headers
-     *
-     * @param url 请求的URL
-     * @param headers 请求头信息
-     * @return 包含签名信息的签名头
-     */
-    public Map<String, String> generateSignatureHeadersSync(String url, String headers) {
-        Map<String, String> result;
-
-        if (this.unidbgProperties.isAsync()) {
-            FQEncryptServiceWorker worker = null;
-            try {
-                worker = borrowWorkerOrThrow();
-                result = worker.doWork(url, headers);
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-                throw new IllegalStateException("签名任务被中断", e);
-            } finally {
-                if (worker != null) {
-                    pool.release(worker);
-                }
-            }
-        } else {
-            // 同步模式直接使用当前实例
-            synchronized (this) {
-                result = this.doWork(url, headers);
-            }
-        }
-
-        return result;
-    }
-
-    /**
      * 同步生成FQ签名headers (重载方法，支持Map格式的headers)
      *
      * @param url 请求的URL
@@ -162,28 +121,6 @@ public class FQEncryptServiceWorker extends Worker {
         }
 
         return result;
-    }
-
-    /**
-     * 兼容旧调用：返回已完成的 future。
-     */
-    public CompletableFuture<Map<String, String>> generateSignatureHeaders(String url, String headers) {
-        return CompletableFuture.completedFuture(generateSignatureHeadersSync(url, headers));
-    }
-
-    /**
-     * 兼容旧调用：返回已完成的 future。
-     */
-    public CompletableFuture<Map<String, String>> generateSignatureHeaders(String url, Map<String, String> headerMap) {
-        return CompletableFuture.completedFuture(generateSignatureHeadersSync(url, headerMap));
-    }
-
-    /**
-     * 执行签名生成工作 (字符串格式headers)
-     */
-    private Map<String, String> doWork(String url, String headers) {
-        ensureResetUpToDate();
-        return fqEncryptService.generateSignatureHeaders(url, headers);
     }
 
     /**
@@ -235,7 +172,6 @@ public class FQEncryptServiceWorker extends Worker {
         localResetEpoch = epoch;
     }
 
-    @SneakyThrows
     @Override
     public void destroy() {
         // 修复：添加异常处理，确保资源清理的健壮性

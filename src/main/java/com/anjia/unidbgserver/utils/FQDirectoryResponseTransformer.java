@@ -1,7 +1,8 @@
 package com.anjia.unidbgserver.utils;
 
 import com.anjia.unidbgserver.dto.FQDirectoryResponse;
-import lombok.extern.slf4j.Slf4j;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.time.Instant;
 import java.time.ZoneId;
@@ -12,8 +13,9 @@ import java.util.List;
 /**
  * 目录响应转换：增强章节信息和最小化输出字段。
  */
-@Slf4j
 public final class FQDirectoryResponseTransformer {
+
+    private static final Logger log = LoggerFactory.getLogger(FQDirectoryResponseTransformer.class);
 
     private static final DateTimeFormatter CHAPTER_TIME_FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
     private static final ZoneId SYSTEM_ZONE_ID = ZoneId.systemDefault();
@@ -35,16 +37,7 @@ public final class FQDirectoryResponseTransformer {
             item.setChapterIndex(i + 1);
             item.setIsLatest(i == totalChapters - 1);
 
-            if (item.getFirstPassTime() != null && item.getFirstPassTime() > 0) {
-                try {
-                    String timeStr = Instant.ofEpochSecond(item.getFirstPassTime())
-                        .atZone(SYSTEM_ZONE_ID)
-                        .format(CHAPTER_TIME_FORMATTER);
-                    item.setFirstPassTimeStr(timeStr);
-                } catch (Exception e) {
-                    log.warn("格式化时间失败 - timestamp: {}", item.getFirstPassTime(), e);
-                }
-            }
+            setFirstPassTimeFormatted(item);
 
             if (item.getSortOrder() == null) {
                 item.setSortOrder(i + 1);
@@ -58,37 +51,43 @@ public final class FQDirectoryResponseTransformer {
         log.debug("章节列表增强完成 - 总章节数: {}", totalChapters);
     }
 
+    private static void setFirstPassTimeFormatted(FQDirectoryResponse.ItemData item) {
+        if (item == null) {
+            return;
+        }
+        Integer firstPassTime = item.getFirstPassTime();
+        if (firstPassTime == null || firstPassTime <= 0) {
+            return;
+        }
+        try {
+            String timeStr = Instant.ofEpochSecond(firstPassTime.longValue())
+                .atZone(SYSTEM_ZONE_ID)
+                .format(CHAPTER_TIME_FORMATTER);
+            item.setFirstPassTimeStr(timeStr);
+        } catch (Exception e) {
+            log.warn("格式化时间失败 - timestamp: {}", firstPassTime, e);
+        }
+    }
+
     public static void trimForMinimalResponse(FQDirectoryResponse directoryResponse) {
         if (directoryResponse == null) {
             return;
         }
 
         List<FQDirectoryResponse.ItemData> source = directoryResponse.getItemDataList();
-        List<FQDirectoryResponse.ItemData> minimal = new ArrayList<>();
+        List<FQDirectoryResponse.ItemData> minimal = new ArrayList<>(source == null ? 0 : source.size());
         if (source != null) {
-            minimal = new ArrayList<>(source.size());
             for (FQDirectoryResponse.ItemData item : source) {
-                if (item == null) {
-                    continue;
+                FQDirectoryResponse.ItemData reduced = toMinimalItem(item);
+                if (reduced != null) {
+                    minimal.add(reduced);
                 }
-                String itemId = item.getItemId() != null ? item.getItemId().trim() : "";
-                if (itemId.isEmpty()) {
-                    continue;
-                }
-                FQDirectoryResponse.ItemData reduced = new FQDirectoryResponse.ItemData();
-                reduced.setItemId(itemId);
-                String title = item.getTitle() != null ? item.getTitle().trim() : "";
-                reduced.setTitle(title);
-                minimal.add(reduced);
             }
         }
 
         directoryResponse.setItemDataList(minimal);
         Integer upstreamSerialCount = directoryResponse.getSerialCount();
-        int finalSerialCount = minimal.size();
-        if (upstreamSerialCount != null && upstreamSerialCount > finalSerialCount) {
-            finalSerialCount = upstreamSerialCount;
-        }
+        int finalSerialCount = upstreamSerialCount == null ? minimal.size() : Math.max(minimal.size(), upstreamSerialCount);
         directoryResponse.setSerialCount(finalSerialCount);
         directoryResponse.setBookInfo(null);
         directoryResponse.setCatalogData(null);
@@ -97,5 +96,19 @@ public final class FQDirectoryResponseTransformer {
         directoryResponse.setAdditionalItemDataList(null);
 
         log.debug("目录响应裁剪完成 - 章节数: {}", minimal.size());
+    }
+
+    private static FQDirectoryResponse.ItemData toMinimalItem(FQDirectoryResponse.ItemData item) {
+        if (item == null) {
+            return null;
+        }
+        String itemId = Texts.trimToNull(item.getItemId());
+        if (itemId == null) {
+            return null;
+        }
+        FQDirectoryResponse.ItemData reduced = new FQDirectoryResponse.ItemData();
+        reduced.setItemId(itemId);
+        reduced.setTitle(Texts.trimToEmpty(item.getTitle()));
+        return reduced;
     }
 }

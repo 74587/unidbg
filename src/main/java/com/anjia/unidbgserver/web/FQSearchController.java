@@ -1,11 +1,20 @@
 package com.anjia.unidbgserver.web;
 
-import com.anjia.unidbgserver.dto.*;
+import com.anjia.unidbgserver.dto.FQDirectoryRequest;
+import com.anjia.unidbgserver.dto.FQDirectoryResponse;
+import com.anjia.unidbgserver.dto.FQNovelResponse;
+import com.anjia.unidbgserver.dto.FQSearchRequest;
+import com.anjia.unidbgserver.dto.FQSearchResponseSimple;
 import com.anjia.unidbgserver.service.FQSearchService;
-import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Autowired;
+import com.anjia.unidbgserver.utils.Texts;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.http.MediaType;
-import org.springframework.web.bind.annotation.*;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.RestController;
 
 import java.util.concurrent.CompletableFuture;
 
@@ -13,17 +22,21 @@ import java.util.concurrent.CompletableFuture;
  * FQ书籍搜索和目录控制器（精简版，仅支持 Legado 阅读）
  * 提供书籍搜索、目录获取等API接口
  */
-@Slf4j
 @RestController
 @RequestMapping(produces = MediaType.APPLICATION_JSON_VALUE)
 public class FQSearchController {
+
+    private static final Logger log = LoggerFactory.getLogger(FQSearchController.class);
 
     private static final int MAX_PAGE_SIZE = 50;
     private static final int MAX_QUERY_LENGTH = 100;
     private static final int MAX_TAB_TYPE = 20;
 
-    @Autowired
-    private FQSearchService fqSearchService;
+    private final FQSearchService fqSearchService;
+
+    public FQSearchController(FQSearchService fqSearchService) {
+        this.fqSearchService = fqSearchService;
+    }
 
     /**
      * 搜索书籍
@@ -48,39 +61,27 @@ public class FQSearchController {
             log.debug("搜索书籍 - key: {}, page: {}, size: {}, tabType: {}", key, page, size, tabType);
         }
 
-        String trimmedKey = key == null ? "" : key.trim();
-        if (trimmedKey.isEmpty()) {
-            return CompletableFuture.completedFuture(
-                FQNovelResponse.<FQSearchResponseSimple>error("搜索关键词不能为空")
-            );
+        String trimmedKey = Texts.trimToNull(key);
+        if (!Texts.hasText(trimmedKey)) {
+            return badRequest("搜索关键词不能为空");
         }
         if (trimmedKey.length() > MAX_QUERY_LENGTH) {
-            return CompletableFuture.completedFuture(
-                FQNovelResponse.<FQSearchResponseSimple>error("搜索关键词过长")
-            );
+            return badRequest("搜索关键词过长");
         }
         if (page == null || page < 1) {
-            return CompletableFuture.completedFuture(
-                FQNovelResponse.<FQSearchResponseSimple>error("页码必须大于等于1")
-            );
+            return badRequest("页码必须大于等于1");
         }
         if (size == null || size < 1 || size > MAX_PAGE_SIZE) {
-            return CompletableFuture.completedFuture(
-                FQNovelResponse.<FQSearchResponseSimple>error("size 超出范围（1-50）")
-            );
+            return badRequest("size 超出范围（1-50）");
         }
         if (tabType == null || tabType < 1 || tabType > MAX_TAB_TYPE) {
-            return CompletableFuture.completedFuture(
-                FQNovelResponse.<FQSearchResponseSimple>error("tabType 超出范围")
-            );
+            return badRequest("tabType 超出范围");
         }
 
         // 将页码转换为offset（页码从1开始，offset从0开始）
         long offsetLong = ((long) page - 1L) * size;
         if (offsetLong > Integer.MAX_VALUE) {
-            return CompletableFuture.completedFuture(
-                FQNovelResponse.<FQSearchResponseSimple>error("分页参数过大")
-            );
+            return badRequest("分页参数过大");
         }
         int offset = (int) offsetLong;
 
@@ -90,7 +91,7 @@ public class FQSearchController {
         searchRequest.setOffset(offset);
         searchRequest.setCount(size);
         searchRequest.setTabType(tabType);
-        searchRequest.setSearchId(searchId != null ? searchId.trim() : null);
+        searchRequest.setSearchId(Texts.trimToNull(searchId));
         searchRequest.setPassback(offset);
 
         return fqSearchService.searchBooksEnhanced(searchRequest)
@@ -111,12 +112,12 @@ public class FQSearchController {
 
     /**
      * 获取书籍目录
-     * 路径: /toc/{bookId}
+     * 路径: /toc/{bookId}（bookId 仅允许数字）
      *
      * @param bookId 书籍ID
      * @return 书籍目录
      */
-    @GetMapping("/toc/{bookId}")
+    @GetMapping("/toc/{bookId:\\d+}")
     public CompletableFuture<FQNovelResponse<FQDirectoryResponse>> getBookToc(
             @PathVariable String bookId) {
 
@@ -124,17 +125,20 @@ public class FQSearchController {
             log.debug("获取书籍目录 - bookId: {}", bookId);
         }
 
-        if (bookId == null || bookId.trim().isEmpty()) {
-            return CompletableFuture.completedFuture(
-                FQNovelResponse.error("书籍ID不能为空")
-            );
+        String normalizedBookId = Texts.trimToNull(bookId);
+        if (!Texts.isDigits(normalizedBookId)) {
+            return badRequest("书籍ID必须为纯数字");
         }
 
         // 构建目录请求
         FQDirectoryRequest directoryRequest = new FQDirectoryRequest();
-        directoryRequest.setBookId(bookId.trim());
+        directoryRequest.setBookId(normalizedBookId);
         directoryRequest.setMinimalResponse(true);
 
         return fqSearchService.getBookDirectory(directoryRequest);
+    }
+
+    private static <T> CompletableFuture<FQNovelResponse<T>> badRequest(String message) {
+        return CompletableFuture.completedFuture(FQNovelResponse.error(message));
     }
 }

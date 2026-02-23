@@ -1,5 +1,6 @@
 package com.anjia.unidbgserver.unidbg;
 
+import com.anjia.unidbgserver.utils.Texts;
 import com.anjia.unidbgserver.utils.TempFileUtils;
 import com.github.unidbg.AndroidEmulator;
 import com.github.unidbg.Emulator;
@@ -10,7 +11,15 @@ import com.github.unidbg.file.IOResolver;
 import com.github.unidbg.file.linux.AndroidFileIO;
 import com.github.unidbg.linux.android.AndroidEmulatorBuilder;
 import com.github.unidbg.linux.android.AndroidResolver;
-import com.github.unidbg.linux.android.dvm.*;
+import com.github.unidbg.linux.android.dvm.AbstractJni;
+import com.github.unidbg.linux.android.dvm.BaseVM;
+import com.github.unidbg.linux.android.dvm.DalvikModule;
+import com.github.unidbg.linux.android.dvm.DvmClass;
+import com.github.unidbg.linux.android.dvm.DvmObject;
+import com.github.unidbg.linux.android.dvm.StringObject;
+import com.github.unidbg.linux.android.dvm.VM;
+import com.github.unidbg.linux.android.dvm.VaList;
+import com.github.unidbg.linux.android.dvm.VarArg;
 import com.github.unidbg.linux.android.dvm.array.ArrayObject;
 import com.github.unidbg.linux.android.dvm.array.ByteArray;
 import com.github.unidbg.linux.android.dvm.wrapper.DvmBoolean;
@@ -20,7 +29,8 @@ import com.github.unidbg.pointer.UnidbgPointer;
 import com.github.unidbg.spi.SyscallHandler;
 import com.github.unidbg.virtualmodule.android.AndroidModule;
 import com.github.unidbg.virtualmodule.android.JniGraphics;
-import lombok.extern.slf4j.Slf4j;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.io.File;
@@ -29,9 +39,10 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 
-@Slf4j
 @SuppressWarnings("unchecked")
 public class IdleFQ extends AbstractJni implements IOResolver<AndroidFileIO> {
+
+    private static final Logger log = LoggerFactory.getLogger(IdleFQ.class);
 
     // 资源路径常量
     private static final String BASE_PATH = "com/dragon/read/oversea/gp";
@@ -167,20 +178,22 @@ public class IdleFQ extends AbstractJni implements IOResolver<AndroidFileIO> {
     }
 
     private File resolveApkFile() throws IOException {
-        if (apkPath != null && !apkPath.trim().isEmpty()) {
-            File apkFile = new File(apkPath.trim());
+        String configuredApkPath = Texts.trimToNull(apkPath);
+        if (configuredApkPath != null) {
+            File apkFile = new File(configuredApkPath);
             if (!apkFile.exists() || !apkFile.isFile()) {
                 throw new IOException("APK 文件不存在: " + apkFile.getAbsolutePath());
             }
             return apkFile;
         }
 
-        if (apkClasspath != null && !apkClasspath.trim().isEmpty()) {
-            File classpathApk = TempFileUtils.getTempFile(apkClasspath.trim());
+        String configuredApkClasspath = Texts.trimToNull(apkClasspath);
+        if (configuredApkClasspath != null) {
+            File classpathApk = TempFileUtils.getTempFile(configuredApkClasspath);
             if (classpathApk != null && classpathApk.exists()) {
                 return classpathApk;
             }
-            throw new IOException("未找到 APK classpath 资源: " + apkClasspath.trim());
+            throw new IOException("未找到 APK classpath 资源: " + configuredApkClasspath);
         }
 
         File classpathApk = TempFileUtils.getTempFile(DEFAULT_APK_CLASSPATH);

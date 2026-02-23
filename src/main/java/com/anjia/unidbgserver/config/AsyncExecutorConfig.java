@@ -8,6 +8,7 @@ import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 
 import java.time.Duration;
 import java.util.concurrent.Executor;
+import java.util.concurrent.Executors;
 
 @Configuration
 public class AsyncExecutorConfig {
@@ -19,6 +20,7 @@ public class AsyncExecutorConfig {
     @Bean(name = "applicationTaskExecutor")
     @ConditionalOnMissingBean(name = "applicationTaskExecutor")
     public Executor applicationTaskExecutor(
+        @Value("${spring.threads.virtual.enabled:true}") boolean useVirtualThreads,
         @Value("${spring.task.execution.pool.core-size:8}") int coreSize,
         @Value("${spring.task.execution.pool.max-size:8}") int maxSize,
         @Value("${spring.task.execution.pool.queue-capacity:256}") int queueCapacity,
@@ -26,6 +28,10 @@ public class AsyncExecutorConfig {
         @Value("${spring.task.execution.pool.allow-core-thread-timeout:true}") boolean allowCoreThreadTimeout,
         @Value("${spring.task.execution.thread-name-prefix:applicationTaskExecutor-}") String threadNamePrefix
     ) {
+        if (useVirtualThreads) {
+            return Executors.newVirtualThreadPerTaskExecutor();
+        }
+
         ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
         executor.setCorePoolSize(Math.max(1, coreSize));
         executor.setMaxPoolSize(Math.max(executor.getCorePoolSize(), maxSize));

@@ -1,11 +1,11 @@
-# 使用 Google Distroless Java 8 (基于 Debian 12)
-# 优势：镜像更小、更安全、无 shell、无包管理器
-FROM gcr.io/distroless/java:8
+# 使用 Distroless Java 25
+FROM gcr.io/distroless/java25-debian13:latest
 
 WORKDIR /app
 
-# 设置时区（Distroless 支持通过环境变量设置）
+# 设置时区
 ENV TZ=Asia/Shanghai
+ENV LOG_DIR=/tmp/logs
 
 # 复制 jar 文件
 COPY target/fqnovel.jar /app/fqnovel.jar
@@ -15,9 +15,7 @@ ENV SERVER_PORT=9999
 EXPOSE 9999
 
 # JVM 参数（可通过环境变量覆盖）
-ENV JAVA_OPTS=""
+ENV JAVA_TOOL_OPTIONS="--enable-native-access=ALL-UNNAMED"
 
 # 启动应用
-# 注意：Distroless 没有 shell，无法使用 bash 过滤日志
-# 日志过滤已在 ConsoleNoiseFilter.java 中实现
 ENTRYPOINT ["java", "-jar", "/app/fqnovel.jar"]

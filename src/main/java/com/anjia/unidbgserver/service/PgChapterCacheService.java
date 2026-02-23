@@ -1,53 +1,62 @@
 package com.anjia.unidbgserver.service;
 
 import com.anjia.unidbgserver.dto.FQNovelChapterInfo;
-import com.anjia.unidbgserver.config.DbUrlPresentCondition;
-import com.anjia.unidbgserver.utils.ChapterCacheValidator;
+import com.anjia.unidbgserver.config.FQCachePostgresConfig;
 import com.anjia.unidbgserver.utils.Texts;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.context.annotation.Conditional;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 
-import javax.annotation.PostConstruct;
+import jakarta.annotation.PostConstruct;
 
 /**
  * PostgreSQL 章节缓存：持久化 bookId/chapterId 对应的章节响应。
  */
-@Slf4j
 @Service
-@RequiredArgsConstructor
-@Conditional(DbUrlPresentCondition.class)
+@Conditional(FQCachePostgresConfig.DbUrlPresentCondition.class)
 public class PgChapterCacheService {
 
-    private static final String CREATE_TABLE_SQL =
-        "CREATE TABLE IF NOT EXISTS chapter ("
-            + "book_id VARCHAR(64) NOT NULL,"
-            + "chapter_id VARCHAR(64) NOT NULL,"
-            + "payload TEXT NOT NULL,"
-            + "updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),"
-            + "PRIMARY KEY (book_id, chapter_id)"
-            + ")";
+    private static final Logger log = LoggerFactory.getLogger(PgChapterCacheService.class);
 
-    private static final String CREATE_UPDATED_INDEX_SQL =
-        "CREATE INDEX IF NOT EXISTS chapter_idx ON chapter(updated_at)";
+    private static final String CREATE_TABLE_SQL = """
+        CREATE TABLE IF NOT EXISTS chapter (
+            book_id VARCHAR(64) NOT NULL,
+            chapter_id VARCHAR(64) NOT NULL,
+            payload TEXT NOT NULL,
+            updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+            PRIMARY KEY (book_id, chapter_id)
+        )
+        """;
 
-    private static final String SELECT_SQL =
-        "SELECT payload FROM chapter WHERE book_id = ? AND chapter_id = ? LIMIT 1";
+    private static final String CREATE_UPDATED_INDEX_SQL = """
+        CREATE INDEX IF NOT EXISTS chapter_idx ON chapter(updated_at)
+        """;
 
-    private static final String UPSERT_SQL =
-        "INSERT INTO chapter (book_id, chapter_id, payload, updated_at) "
-            + "VALUES (?, ?, ?, now()) "
-            + "ON CONFLICT (book_id, chapter_id) "
-            + "DO UPDATE SET payload = EXCLUDED.payload, updated_at = now()";
+    private static final String SELECT_SQL = """
+        SELECT payload FROM chapter WHERE book_id = ? AND chapter_id = ? LIMIT 1
+        """;
 
-    private static final String DELETE_SQL =
-        "DELETE FROM chapter WHERE book_id = ? AND chapter_id = ?";
+    private static final String UPSERT_SQL = """
+        INSERT INTO chapter (book_id, chapter_id, payload, updated_at)
+        VALUES (?, ?, ?, now())
+        ON CONFLICT (book_id, chapter_id)
+        DO UPDATE SET payload = EXCLUDED.payload, updated_at = now()
+        """;
+
+    private static final String DELETE_SQL = """
+        DELETE FROM chapter WHERE book_id = ? AND chapter_id = ?
+        """;
 
     private final JdbcTemplate jdbcTemplate;
     private final ObjectMapper objectMapper;
+
+    public PgChapterCacheService(JdbcTemplate jdbcTemplate, ObjectMapper objectMapper) {
+        this.jdbcTemplate = jdbcTemplate;
+        this.objectMapper = objectMapper;
+    }
 
     @PostConstruct
     public void initSchema() {
@@ -66,8 +75,8 @@ public class PgChapterCacheService {
             return null;
         }
 
-        String normalizedBookId = bookId.trim();
-        String normalizedChapterId = chapterId.trim();
+        String normalizedBookId = Texts.trimToEmpty(bookId);
+        String normalizedChapterId = Texts.trimToEmpty(chapterId);
 
         try {
             String payload = jdbcTemplate.query(
@@ -85,7 +94,7 @@ public class PgChapterCacheService {
 
             try {
                 FQNovelChapterInfo chapterInfo = objectMapper.readValue(payload, FQNovelChapterInfo.class);
-                if (!ChapterCacheValidator.isCacheable(normalizedBookId, normalizedChapterId, chapterInfo)) {
+                if (!FQNovelChapterInfo.normalizeAndValidateForCache(normalizedBookId, normalizedChapterId, chapterInfo)) {
                     deleteQuietly(normalizedBookId, normalizedChapterId);
                     return null;
                 }
@@ -110,10 +119,10 @@ public class PgChapterCacheService {
             return;
         }
 
-        String normalizedBookId = bookId.trim();
-        String normalizedChapterId = chapterId.trim();
+        String normalizedBookId = Texts.trimToEmpty(bookId);
+        String normalizedChapterId = Texts.trimToEmpty(chapterId);
 
-        if (!ChapterCacheValidator.isCacheable(normalizedBookId, normalizedChapterId, chapterInfo)) {
+        if (!FQNovelChapterInfo.normalizeAndValidateForCache(normalizedBookId, normalizedChapterId, chapterInfo)) {
             if (log.isDebugEnabled()) {
                 log.debug("跳过写入 PostgreSQL 缓存（章节数据无效）- bookId: {}, chapterId: {}", normalizedBookId, normalizedChapterId);
             }

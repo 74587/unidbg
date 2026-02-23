@@ -1,12 +1,9 @@
 package com.anjia.unidbgserver.dto;
 
-import lombok.Data;
-
 /**
  * FQ搜索请求DTO
  * 补全所有实际API参数，保证与真实接口参数一致
  */
-@Data
 public class FQSearchRequest {
 
     // 搜索关键词
@@ -134,4 +131,340 @@ public class FQSearchRequest {
 
     // HAR状态
     private Integer harStatus;
+
+    public String getQuery() {
+        return query;
+    }
+
+    public void setQuery(String query) {
+        this.query = query;
+    }
+
+    public Integer getOffset() {
+        return offset;
+    }
+
+    public void setOffset(Integer offset) {
+        this.offset = offset;
+    }
+
+    public Integer getCount() {
+        return count;
+    }
+
+    public void setCount(Integer count) {
+        this.count = count;
+    }
+
+    public Integer getPassback() {
+        return passback;
+    }
+
+    public void setPassback(Integer passback) {
+        this.passback = passback;
+    }
+
+    public Integer getTabType() {
+        return tabType;
+    }
+
+    public void setTabType(Integer tabType) {
+        this.tabType = tabType;
+    }
+
+    public String getSearchId() {
+        return searchId;
+    }
+
+    public void setSearchId(String searchId) {
+        this.searchId = searchId;
+    }
+
+    public Integer getBookshelfSearchPlan() {
+        return bookshelfSearchPlan;
+    }
+
+    public void setBookshelfSearchPlan(Integer bookshelfSearchPlan) {
+        this.bookshelfSearchPlan = bookshelfSearchPlan;
+    }
+
+    public Boolean getFromRs() {
+        return fromRs;
+    }
+
+    public void setFromRs(Boolean fromRs) {
+        this.fromRs = fromRs;
+    }
+
+    public Integer getUserIsLogin() {
+        return userIsLogin;
+    }
+
+    public void setUserIsLogin(Integer userIsLogin) {
+        this.userIsLogin = userIsLogin;
+    }
+
+    public Integer getBookstoreTab() {
+        return bookstoreTab;
+    }
+
+    public void setBookstoreTab(Integer bookstoreTab) {
+        this.bookstoreTab = bookstoreTab;
+    }
+
+    public Integer getSearchSource() {
+        return searchSource;
+    }
+
+    public void setSearchSource(Integer searchSource) {
+        this.searchSource = searchSource;
+    }
+
+    public String getClickedContent() {
+        return clickedContent;
+    }
+
+    public void setClickedContent(String clickedContent) {
+        this.clickedContent = clickedContent;
+    }
+
+    public String getSearchSourceId() {
+        return searchSourceId;
+    }
+
+    public void setSearchSourceId(String searchSourceId) {
+        this.searchSourceId = searchSourceId;
+    }
+
+    public Boolean getUseLynx() {
+        return useLynx;
+    }
+
+    public void setUseLynx(Boolean useLynx) {
+        this.useLynx = useLynx;
+    }
+
+    public Boolean getUseCorrect() {
+        return useCorrect;
+    }
+
+    public void setUseCorrect(Boolean useCorrect) {
+        this.useCorrect = useCorrect;
+    }
+
+    public String getTabName() {
+        return tabName;
+    }
+
+    public void setTabName(String tabName) {
+        this.tabName = tabName;
+    }
+
+    public Boolean getIsFirstEnterSearch() {
+        return isFirstEnterSearch;
+    }
+
+    public void setIsFirstEnterSearch(Boolean isFirstEnterSearch) {
+        this.isFirstEnterSearch = isFirstEnterSearch;
+    }
+
+    public String getClientAbInfo() {
+        return clientAbInfo;
+    }
+
+    public void setClientAbInfo(String clientAbInfo) {
+        this.clientAbInfo = clientAbInfo;
+    }
+
+    public Integer getLastSearchPageInterval() {
+        return lastSearchPageInterval;
+    }
+
+    public void setLastSearchPageInterval(Integer lastSearchPageInterval) {
+        this.lastSearchPageInterval = lastSearchPageInterval;
+    }
+
+    public Integer getLineWordsNum() {
+        return lineWordsNum;
+    }
+
+    public void setLineWordsNum(Integer lineWordsNum) {
+        this.lineWordsNum = lineWordsNum;
+    }
+
+    public Integer getLastConsumeInterval() {
+        return lastConsumeInterval;
+    }
+
+    public void setLastConsumeInterval(Integer lastConsumeInterval) {
+        this.lastConsumeInterval = lastConsumeInterval;
+    }
+
+    public Integer getPadColumnCover() {
+        return padColumnCover;
+    }
+
+    public void setPadColumnCover(Integer padColumnCover) {
+        this.padColumnCover = padColumnCover;
+    }
+
+    public String getKlinkEgdi() {
+        return klinkEgdi;
+    }
+
+    public void setKlinkEgdi(String klinkEgdi) {
+        this.klinkEgdi = klinkEgdi;
+    }
+
+    public String getNormalSessionId() {
+        return normalSessionId;
+    }
+
+    public void setNormalSessionId(String normalSessionId) {
+        this.normalSessionId = normalSessionId;
+    }
+
+    public String getColdStartSessionId() {
+        return coldStartSessionId;
+    }
+
+    public void setColdStartSessionId(String coldStartSessionId) {
+        this.coldStartSessionId = coldStartSessionId;
+    }
+
+    public Integer getCharging() {
+        return charging;
+    }
+
+    public void setCharging(Integer charging) {
+        this.charging = charging;
+    }
+
+    public Integer getScreenBrightness() {
+        return screenBrightness;
+    }
+
+    public void setScreenBrightness(Integer screenBrightness) {
+        this.screenBrightness = screenBrightness;
+    }
+
+    public Integer getBatteryPct() {
+        return batteryPct;
+    }
+
+    public void setBatteryPct(Integer batteryPct) {
+        this.batteryPct = batteryPct;
+    }
+
+    public Integer getDownSpeed() {
+        return downSpeed;
+    }
+
+    public void setDownSpeed(Integer downSpeed) {
+        this.downSpeed = downSpeed;
+    }
+
+    public Integer getSysDarkMode() {
+        return sysDarkMode;
+    }
+
+    public void setSysDarkMode(Integer sysDarkMode) {
+        this.sysDarkMode = sysDarkMode;
+    }
+
+    public Integer getAppDarkMode() {
+        return appDarkMode;
+    }
+
+    public void setAppDarkMode(Integer appDarkMode) {
+        this.appDarkMode = appDarkMode;
+    }
+
+    public Integer getFontScale() {
+        return fontScale;
+    }
+
+    public void setFontScale(Integer fontScale) {
+        this.fontScale = fontScale;
+    }
+
+    public Integer getIsAndroidPadScreen() {
+        return isAndroidPadScreen;
+    }
+
+    public void setIsAndroidPadScreen(Integer isAndroidPadScreen) {
+        this.isAndroidPadScreen = isAndroidPadScreen;
+    }
+
+    public Integer getNetworkType() {
+        return networkType;
+    }
+
+    public void setNetworkType(Integer networkType) {
+        this.networkType = networkType;
+    }
+
+    public String getRomVersion() {
+        return romVersion;
+    }
+
+    public void setRomVersion(String romVersion) {
+        this.romVersion = romVersion;
+    }
+
+    public Integer getCurrentVolume() {
+        return currentVolume;
+    }
+
+    public void setCurrentVolume(Integer currentVolume) {
+        this.currentVolume = currentVolume;
+    }
+
+    public String getCdid() {
+        return cdid;
+    }
+
+    public void setCdid(String cdid) {
+        this.cdid = cdid;
+    }
+
+    public Integer getNeedPersonalRecommend() {
+        return needPersonalRecommend;
+    }
+
+    public void setNeedPersonalRecommend(Integer needPersonalRecommend) {
+        this.needPersonalRecommend = needPersonalRecommend;
+    }
+
+    public Integer getPlayerSoLoad() {
+        return playerSoLoad;
+    }
+
+    public void setPlayerSoLoad(Integer playerSoLoad) {
+        this.playerSoLoad = playerSoLoad;
+    }
+
+    public Integer getGender() {
+        return gender;
+    }
+
+    public void setGender(Integer gender) {
+        this.gender = gender;
+    }
+
+    public Integer getComplianceStatus() {
+        return complianceStatus;
+    }
+
+    public void setComplianceStatus(Integer complianceStatus) {
+        this.complianceStatus = complianceStatus;
+    }
+
+    public Integer getHarStatus() {
+        return harStatus;
+    }
+
+    public void setHarStatus(Integer harStatus) {
+        this.harStatus = harStatus;
+    }
 }

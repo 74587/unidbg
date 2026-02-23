@@ -1,11 +1,8 @@
 package com.anjia.unidbgserver.dto;
 
-import lombok.Data;
-
 /**
  * FQNovel API 请求参数
  */
-@Data
 public class FQNovelRequest {
     
     /**
@@ -27,5 +24,36 @@ public class FQNovelRequest {
      * 安装ID（请求参数名为 iid）
      */
     private String iid;
-    
+
+    public String getBookId() {
+        return bookId;
+    }
+
+    public void setBookId(String bookId) {
+        this.bookId = bookId;
+    }
+
+    public String getChapterId() {
+        return chapterId;
+    }
+
+    public void setChapterId(String chapterId) {
+        this.chapterId = chapterId;
+    }
+
+    public String getDeviceId() {
+        return deviceId;
+    }
+
+    public void setDeviceId(String deviceId) {
+        this.deviceId = deviceId;
+    }
+
+    public String getIid() {
+        return iid;
+    }
+
+    public void setIid(String iid) {
+        this.iid = iid;
+    }
 }

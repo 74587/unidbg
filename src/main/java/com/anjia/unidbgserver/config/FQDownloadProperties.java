@@ -1,17 +1,15 @@
 package com.anjia.unidbgserver.config;
 
-import lombok.Data;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
 /**
  * 下载/上游请求相关配置
  */
-@Data
 @ConfigurationProperties(prefix = "fq.download")
 public class FQDownloadProperties {
 
     /**
-     * 上游接口最小请求间隔（ms），用于限制 QPS。
+     * 章节接口（batch_full）最小请求间隔（ms），用于限制章节请求 QPS。
      * 例如 500ms ~= 1 秒 2 次。
      */
     private long requestIntervalMs = 500;
@@ -151,4 +149,228 @@ public class FQDownloadProperties {
      * 触发退出前的等待时间（ms）：用于给 in-flight 请求一个收尾窗口。
      */
     private long autoRestartExitDelayMs = 5_000L;
+
+    public long getRequestIntervalMs() {
+        return requestIntervalMs;
+    }
+
+    public void setRequestIntervalMs(long requestIntervalMs) {
+        this.requestIntervalMs = requestIntervalMs;
+    }
+
+    public int getMaxRetries() {
+        return maxRetries;
+    }
+
+    public void setMaxRetries(int maxRetries) {
+        this.maxRetries = maxRetries;
+    }
+
+    public long getRetryDelayMs() {
+        return retryDelayMs;
+    }
+
+    public void setRetryDelayMs(long retryDelayMs) {
+        this.retryDelayMs = retryDelayMs;
+    }
+
+    public long getRetryMaxDelayMs() {
+        return retryMaxDelayMs;
+    }
+
+    public void setRetryMaxDelayMs(long retryMaxDelayMs) {
+        this.retryMaxDelayMs = retryMaxDelayMs;
+    }
+
+    public long getUpstreamConnectTimeoutMs() {
+        return upstreamConnectTimeoutMs;
+    }
+
+    public void setUpstreamConnectTimeoutMs(long upstreamConnectTimeoutMs) {
+        this.upstreamConnectTimeoutMs = upstreamConnectTimeoutMs;
+    }
+
+    public long getUpstreamReadTimeoutMs() {
+        return upstreamReadTimeoutMs;
+    }
+
+    public void setUpstreamReadTimeoutMs(long upstreamReadTimeoutMs) {
+        this.upstreamReadTimeoutMs = upstreamReadTimeoutMs;
+    }
+
+    public int getChapterPrefetchSize() {
+        return chapterPrefetchSize;
+    }
+
+    public void setChapterPrefetchSize(int chapterPrefetchSize) {
+        this.chapterPrefetchSize = chapterPrefetchSize;
+    }
+
+    public int getPrefetchExecutorCoreSize() {
+        return prefetchExecutorCoreSize;
+    }
+
+    public void setPrefetchExecutorCoreSize(int prefetchExecutorCoreSize) {
+        this.prefetchExecutorCoreSize = prefetchExecutorCoreSize;
+    }
+
+    public int getPrefetchExecutorMaxSize() {
+        return prefetchExecutorMaxSize;
+    }
+
+    public void setPrefetchExecutorMaxSize(int prefetchExecutorMaxSize) {
+        this.prefetchExecutorMaxSize = prefetchExecutorMaxSize;
+    }
+
+    public int getPrefetchExecutorQueueCapacity() {
+        return prefetchExecutorQueueCapacity;
+    }
+
+    public void setPrefetchExecutorQueueCapacity(int prefetchExecutorQueueCapacity) {
+        this.prefetchExecutorQueueCapacity = prefetchExecutorQueueCapacity;
+    }
+
+    public int getPrefetchExecutorKeepAliveSeconds() {
+        return prefetchExecutorKeepAliveSeconds;
+    }
+
+    public void setPrefetchExecutorKeepAliveSeconds(int prefetchExecutorKeepAliveSeconds) {
+        this.prefetchExecutorKeepAliveSeconds = prefetchExecutorKeepAliveSeconds;
+    }
+
+    public int getChapterCacheMaxEntries() {
+        return chapterCacheMaxEntries;
+    }
+
+    public void setChapterCacheMaxEntries(int chapterCacheMaxEntries) {
+        this.chapterCacheMaxEntries = chapterCacheMaxEntries;
+    }
+
+    public long getChapterCacheTtlMs() {
+        return chapterCacheTtlMs;
+    }
+
+    public void setChapterCacheTtlMs(long chapterCacheTtlMs) {
+        this.chapterCacheTtlMs = chapterCacheTtlMs;
+    }
+
+    public long getChapterNegativeCacheTtlMs() {
+        return chapterNegativeCacheTtlMs;
+    }
+
+    public void setChapterNegativeCacheTtlMs(long chapterNegativeCacheTtlMs) {
+        this.chapterNegativeCacheTtlMs = chapterNegativeCacheTtlMs;
+    }
+
+    public boolean isChapterIncludeRawContent() {
+        return chapterIncludeRawContent;
+    }
+
+    public void setChapterIncludeRawContent(boolean chapterIncludeRawContent) {
+        this.chapterIncludeRawContent = chapterIncludeRawContent;
+    }
+
+    public long getDirectoryCacheTtlMs() {
+        return directoryCacheTtlMs;
+    }
+
+    public void setDirectoryCacheTtlMs(long directoryCacheTtlMs) {
+        this.directoryCacheTtlMs = directoryCacheTtlMs;
+    }
+
+    public int getSearchCacheMaxEntries() {
+        return searchCacheMaxEntries;
+    }
+
+    public void setSearchCacheMaxEntries(int searchCacheMaxEntries) {
+        this.searchCacheMaxEntries = searchCacheMaxEntries;
+    }
+
+    public long getSearchCacheTtlMs() {
+        return searchCacheTtlMs;
+    }
+
+    public void setSearchCacheTtlMs(long searchCacheTtlMs) {
+        this.searchCacheTtlMs = searchCacheTtlMs;
+    }
+
+    public int getApiDirectoryCacheMaxEntries() {
+        return apiDirectoryCacheMaxEntries;
+    }
+
+    public void setApiDirectoryCacheMaxEntries(int apiDirectoryCacheMaxEntries) {
+        this.apiDirectoryCacheMaxEntries = apiDirectoryCacheMaxEntries;
+    }
+
+    public long getApiDirectoryCacheTtlMs() {
+        return apiDirectoryCacheTtlMs;
+    }
+
+    public void setApiDirectoryCacheTtlMs(long apiDirectoryCacheTtlMs) {
+        this.apiDirectoryCacheTtlMs = apiDirectoryCacheTtlMs;
+    }
+
+    public boolean isAutoRestartEnabled() {
+        return autoRestartEnabled;
+    }
+
+    public void setAutoRestartEnabled(boolean autoRestartEnabled) {
+        this.autoRestartEnabled = autoRestartEnabled;
+    }
+
+    public int getAutoRestartErrorThreshold() {
+        return autoRestartErrorThreshold;
+    }
+
+    public void setAutoRestartErrorThreshold(int autoRestartErrorThreshold) {
+        this.autoRestartErrorThreshold = autoRestartErrorThreshold;
+    }
+
+    public long getAutoRestartWindowMs() {
+        return autoRestartWindowMs;
+    }
+
+    public void setAutoRestartWindowMs(long autoRestartWindowMs) {
+        this.autoRestartWindowMs = autoRestartWindowMs;
+    }
+
+    public long getAutoRestartMinIntervalMs() {
+        return autoRestartMinIntervalMs;
+    }
+
+    public void setAutoRestartMinIntervalMs(long autoRestartMinIntervalMs) {
+        this.autoRestartMinIntervalMs = autoRestartMinIntervalMs;
+    }
+
+    public long getAutoRestartForceHaltAfterMs() {
+        return autoRestartForceHaltAfterMs;
+    }
+
+    public void setAutoRestartForceHaltAfterMs(long autoRestartForceHaltAfterMs) {
+        this.autoRestartForceHaltAfterMs = autoRestartForceHaltAfterMs;
+    }
+
+    public boolean isAutoRestartSelfHealEnabled() {
+        return autoRestartSelfHealEnabled;
+    }
+
+    public void setAutoRestartSelfHealEnabled(boolean autoRestartSelfHealEnabled) {
+        this.autoRestartSelfHealEnabled = autoRestartSelfHealEnabled;
+    }
+
+    public long getAutoRestartSelfHealCooldownMs() {
+        return autoRestartSelfHealCooldownMs;
+    }
+
+    public void setAutoRestartSelfHealCooldownMs(long autoRestartSelfHealCooldownMs) {
+        this.autoRestartSelfHealCooldownMs = autoRestartSelfHealCooldownMs;
+    }
+
+    public long getAutoRestartExitDelayMs() {
+        return autoRestartExitDelayMs;
+    }
+
+    public void setAutoRestartExitDelayMs(long autoRestartExitDelayMs) {
+        this.autoRestartExitDelayMs = autoRestartExitDelayMs;
+    }
 }

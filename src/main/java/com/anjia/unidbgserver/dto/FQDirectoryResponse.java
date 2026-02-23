@@ -6,13 +6,11 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.annotation.JsonDeserialize;
 import com.anjia.unidbgserver.json.LenientIntegerDeserializer;
-import lombok.Data;
 import java.util.List;
 
 /**
  * FQ书籍目录响应DTO - 基于实际API响应结构
  */
-@Data
 @JsonIgnoreProperties(ignoreUnknown = true)
 @JsonInclude(JsonInclude.Include.NON_NULL)
 public class FQDirectoryResponse {
@@ -60,7 +58,6 @@ public class FQDirectoryResponse {
     @JsonDeserialize(using = LenientIntegerDeserializer.class)
     private Integer serialCount;
 
-    @Data
     @JsonIgnoreProperties(ignoreUnknown = true)
     public static class CatalogItem {
 
@@ -81,12 +78,35 @@ public class FQDirectoryResponse {
          */
         @JsonProperty("item_id")
         private String itemId;
+
+        public String getCatalogId() {
+            return catalogId;
+        }
+
+        public void setCatalogId(String catalogId) {
+            this.catalogId = catalogId;
+        }
+
+        public String getCatalogTitle() {
+            return catalogTitle;
+        }
+
+        public void setCatalogTitle(String catalogTitle) {
+            this.catalogTitle = catalogTitle;
+        }
+
+        public String getItemId() {
+            return itemId;
+        }
+
+        public void setItemId(String itemId) {
+            this.itemId = itemId;
+        }
     }
 
     /**
      * 章节详细数据（精简版 - 仅保留 Legado 需要的字段）
      */
-    @Data
     @JsonIgnoreProperties(ignoreUnknown = true)
     @JsonInclude(JsonInclude.Include.NON_NULL)
     public static class ItemData {
@@ -137,9 +157,72 @@ public class FQDirectoryResponse {
          */
         @JsonProperty("is_free")
         private Boolean isFree;
+
+        public String getItemId() {
+            return itemId;
+        }
+
+        public void setItemId(String itemId) {
+            this.itemId = itemId;
+        }
+
+        public String getTitle() {
+            return title;
+        }
+
+        public void setTitle(String title) {
+            this.title = title;
+        }
+
+        public Integer getChapterIndex() {
+            return chapterIndex;
+        }
+
+        public void setChapterIndex(Integer chapterIndex) {
+            this.chapterIndex = chapterIndex;
+        }
+
+        public Boolean getIsLatest() {
+            return isLatest;
+        }
+
+        public void setIsLatest(Boolean latest) {
+            isLatest = latest;
+        }
+
+        public Integer getFirstPassTime() {
+            return firstPassTime;
+        }
+
+        public void setFirstPassTime(Integer firstPassTime) {
+            this.firstPassTime = firstPassTime;
+        }
+
+        public String getFirstPassTimeStr() {
+            return firstPassTimeStr;
+        }
+
+        public void setFirstPassTimeStr(String firstPassTimeStr) {
+            this.firstPassTimeStr = firstPassTimeStr;
+        }
+
+        public Integer getSortOrder() {
+            return sortOrder;
+        }
+
+        public void setSortOrder(Integer sortOrder) {
+            this.sortOrder = sortOrder;
+        }
+
+        public Boolean getIsFree() {
+            return isFree;
+        }
+
+        public void setIsFree(Boolean free) {
+            isFree = free;
+        }
     }
 
-    @Data
     @JsonIgnoreProperties(ignoreUnknown = true)
     public static class FieldCacheStatus {
 
@@ -154,9 +237,24 @@ public class FQDirectoryResponse {
          */
         @JsonProperty("item_data_list")
         private CacheInfo itemDataList;
+
+        public CacheInfo getBookInfo() {
+            return bookInfo;
+        }
+
+        public void setBookInfo(CacheInfo bookInfo) {
+            this.bookInfo = bookInfo;
+        }
+
+        public CacheInfo getItemDataList() {
+            return itemDataList;
+        }
+
+        public void setItemDataList(CacheInfo itemDataList) {
+            this.itemDataList = itemDataList;
+        }
     }
 
-    @Data
     @JsonIgnoreProperties(ignoreUnknown = true)
     public static class CacheInfo {
 
@@ -169,6 +267,78 @@ public class FQDirectoryResponse {
          * MD5校验值
          */
         private String md5;
+
+        public Boolean getHit() {
+            return hit;
+        }
+
+        public void setHit(Boolean hit) {
+            this.hit = hit;
+        }
+
+        public String getMd5() {
+            return md5;
+        }
+
+        public void setMd5(String md5) {
+            this.md5 = md5;
+        }
+    }
+
+    public Boolean getBanRecover() {
+        return banRecover;
+    }
+
+    public void setBanRecover(Boolean banRecover) {
+        this.banRecover = banRecover;
+    }
+
+    public JsonNode getAdditionalItemDataList() {
+        return additionalItemDataList;
+    }
+
+    public void setAdditionalItemDataList(JsonNode additionalItemDataList) {
+        this.additionalItemDataList = additionalItemDataList;
+    }
+
+    public List<CatalogItem> getCatalogData() {
+        return catalogData;
+    }
+
+    public void setCatalogData(List<CatalogItem> catalogData) {
+        this.catalogData = catalogData;
+    }
+
+    public List<ItemData> getItemDataList() {
+        return itemDataList;
+    }
+
+    public void setItemDataList(List<ItemData> itemDataList) {
+        this.itemDataList = itemDataList;
+    }
+
+    public FieldCacheStatus getFieldCacheStatus() {
+        return fieldCacheStatus;
+    }
+
+    public void setFieldCacheStatus(FieldCacheStatus fieldCacheStatus) {
+        this.fieldCacheStatus = fieldCacheStatus;
+    }
+
+    public FQNovelBookInfoResp getBookInfo() {
+        return bookInfo;
+    }
+
+    public void setBookInfo(FQNovelBookInfoResp bookInfo) {
+        this.bookInfo = bookInfo;
+    }
+
+    public Integer getSerialCount() {
+        return serialCount;
+    }
+
+    public void setSerialCount(Integer serialCount) {
+        this.serialCount = serialCount;
     }
 
 }

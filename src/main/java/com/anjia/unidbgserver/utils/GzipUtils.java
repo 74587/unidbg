@@ -17,6 +17,45 @@ public final class GzipUtils {
 
     private GzipUtils() {}
 
+    private static boolean hasGzipMagic(byte[] data) {
+        return data != null
+            && data.length >= 2
+            && data[0] == (byte) 0x1f
+            && data[1] == (byte) 0x8b;
+    }
+
+    private static String utf8(byte[] data) {
+        return data == null ? "" : new String(data, StandardCharsets.UTF_8);
+    }
+
+    private static String decodeRawBody(byte[] data) {
+        return utf8(data);
+    }
+
+    private static String ungzip(byte[] gzipData) throws Exception {
+        try (GZIPInputStream gzipInputStream = new GZIPInputStream(new ByteArrayInputStream(gzipData))) {
+            ByteArrayOutputStream byteArrayOutputStream = new ByteArrayOutputStream();
+            byte[] buffer = new byte[1024];
+            int length;
+            while ((length = gzipInputStream.read(buffer)) != -1) {
+                byteArrayOutputStream.write(buffer, 0, length);
+            }
+            return utf8(byteArrayOutputStream.toByteArray());
+        }
+    }
+
+    private static boolean hasGzipContentEncoding(List<String> encodings) {
+        if (encodings == null) {
+            return false;
+        }
+        for (String encoding : encodings) {
+            if (encoding != null && encoding.toLowerCase(Locale.ROOT).contains("gzip")) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     /**
      * 解压缩 GZIP 响应体（基础方法）
      *
@@ -30,24 +69,16 @@ public final class GzipUtils {
         }
 
         // Some upstream responses are not gzip (or already decompressed).
-        boolean looksLikeGzip = gzipData.length >= 2
-            && (gzipData[0] == (byte) 0x1f)
-            && (gzipData[1] == (byte) 0x8b);
+        boolean looksLikeGzip = hasGzipMagic(gzipData);
         if (!looksLikeGzip) {
-            return new String(gzipData, StandardCharsets.UTF_8);
+            return decodeRawBody(gzipData);
         }
 
-        try (GZIPInputStream gzipInputStream = new GZIPInputStream(new ByteArrayInputStream(gzipData))) {
-            ByteArrayOutputStream byteArrayOutputStream = new ByteArrayOutputStream();
-            byte[] buffer = new byte[1024];
-            int length;
-            while ((length = gzipInputStream.read(buffer)) != -1) {
-                byteArrayOutputStream.write(buffer, 0, length);
-            }
-            return new String(byteArrayOutputStream.toByteArray(), StandardCharsets.UTF_8);
+        try {
+            return ungzip(gzipData);
         } catch (java.util.zip.ZipException e) {
             // Fallback: not gzip (or already decompressed).
-            return new String(gzipData, StandardCharsets.UTF_8);
+            return decodeRawBody(gzipData);
         }
     }
 
@@ -67,38 +98,20 @@ public final class GzipUtils {
             return "";
         }
 
-        boolean isGzip = false;
-        List<String> enc = response.getHeaders() != null ? response.getHeaders().get("Content-Encoding") : null;
-        if (enc != null) {
-            for (String e : enc) {
-                if (e != null && e.toLowerCase(Locale.ROOT).contains("gzip")) {
-                    isGzip = true;
-                    break;
-                }
-            }
-        }
-        if (!isGzip && body.length >= 2 && body[0] == (byte) 0x1f && body[1] == (byte) 0x8b) {
-            isGzip = true;
-        }
+        List<String> enc = response.getHeaders().get("Content-Encoding");
+        boolean isGzip = hasGzipContentEncoding(enc) || hasGzipMagic(body);
 
         if (!isGzip) {
-            return new String(body, StandardCharsets.UTF_8);
+            return decodeRawBody(body);
         }
 
-        try (GZIPInputStream gzipInputStream = new GZIPInputStream(new ByteArrayInputStream(body))) {
-            ByteArrayOutputStream byteArrayOutputStream = new ByteArrayOutputStream();
-            byte[] buffer = new byte[1024];
-            int length;
-            while ((length = gzipInputStream.read(buffer)) != -1) {
-                byteArrayOutputStream.write(buffer, 0, length);
-            }
-            return new String(byteArrayOutputStream.toByteArray(), StandardCharsets.UTF_8);
+        try {
+            return ungzip(body);
         } catch (java.util.zip.ZipException e) {
             // 上游偶尔会返回非 gzip 内容但误标为 gzip，兜底为原始文本
-            return new String(body, StandardCharsets.UTF_8);
+            return decodeRawBody(body);
         } catch (Exception e) {
-            return new String(body, StandardCharsets.UTF_8);
+            return decodeRawBody(body);
         }
     }
 }
-

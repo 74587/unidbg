@@ -5,12 +5,10 @@ import com.anjia.unidbgserver.json.LenientLongDeserializer;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.databind.annotation.JsonDeserialize;
-import lombok.Data;
 
 /**
  * 目录接口中的书籍信息（仅保留当前映射需要字段）。
  */
-@Data
 @JsonIgnoreProperties(ignoreUnknown = true)
 public class FQNovelBookInfoResp {
 
@@ -43,4 +41,84 @@ public class FQNovelBookInfoResp {
     @JsonProperty("serial_count")
     @JsonDeserialize(using = LenientIntegerDeserializer.class)
     private Integer serialCount;
+
+    public String getBookName() {
+        return bookName;
+    }
+
+    public void setBookName(String bookName) {
+        this.bookName = bookName;
+    }
+
+    public String getAuthor() {
+        return author;
+    }
+
+    public void setAuthor(String author) {
+        this.author = author;
+    }
+
+    public String getAbstractContent() {
+        return abstractContent;
+    }
+
+    public void setAbstractContent(String abstractContent) {
+        this.abstractContent = abstractContent;
+    }
+
+    public String getBookAbstractV2() {
+        return bookAbstractV2;
+    }
+
+    public void setBookAbstractV2(String bookAbstractV2) {
+        this.bookAbstractV2 = bookAbstractV2;
+    }
+
+    public String getThumbUrl() {
+        return thumbUrl;
+    }
+
+    public void setThumbUrl(String thumbUrl) {
+        this.thumbUrl = thumbUrl;
+    }
+
+    public Long getWordNumber() {
+        return wordNumber;
+    }
+
+    public void setWordNumber(Long wordNumber) {
+        this.wordNumber = wordNumber;
+    }
+
+    public String getLastChapterTitle() {
+        return lastChapterTitle;
+    }
+
+    public void setLastChapterTitle(String lastChapterTitle) {
+        this.lastChapterTitle = lastChapterTitle;
+    }
+
+    public String getCategory() {
+        return category;
+    }
+
+    public void setCategory(String category) {
+        this.category = category;
+    }
+
+    public Integer getStatus() {
+        return status;
+    }
+
+    public void setStatus(Integer status) {
+        this.status = status;
+    }
+
+    public Integer getSerialCount() {
+        return serialCount;
+    }
+
+    public void setSerialCount(Integer serialCount) {
+        this.serialCount = serialCount;
+    }
 }

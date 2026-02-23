@@ -1,11 +1,11 @@
 package com.anjia.unidbgserver;
 
-import lombok.extern.slf4j.Slf4j;
 import com.anjia.unidbgserver.utils.ConsoleNoiseFilter;
-import org.apache.commons.lang3.StringUtils;
+import com.anjia.unidbgserver.utils.Texts;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.boot.Banner;
 import org.springframework.boot.SpringApplication;
-import org.springframework.boot.autoconfigure.jdbc.DataSourceAutoConfiguration;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.boot.context.properties.ConfigurationPropertiesScan;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
@@ -13,14 +13,18 @@ import org.springframework.core.env.Environment;
 
 import java.net.InetAddress;
 
-@Slf4j
 @ConfigurationPropertiesScan
 @EnableConfigurationProperties
 @SpringBootApplication(
     scanBasePackages = {"com.anjia"},
-    exclude = {DataSourceAutoConfiguration.class}
+    excludeName = {
+        "org.springframework.boot.jdbc.autoconfigure.DataSourceAutoConfiguration",
+        "org.springframework.boot.webmvc.autoconfigure.error.ErrorMvcAutoConfiguration"
+    }
 )
 public class UnidbgServerApplication {
+
+    private static final Logger log = LoggerFactory.getLogger(UnidbgServerApplication.class);
 
     private static final String SERVER_PORT = "server.port";
     private static final String SERVER_SERVLET_CONTEXT_PATH = "server.servlet.context-path";
@@ -80,9 +84,7 @@ public class UnidbgServerApplication {
     private static void logApplicationStartup(Environment env) {
         String serverPort = env.getProperty(SERVER_PORT);
         String contextPath = env.getProperty(SERVER_SERVLET_CONTEXT_PATH);
-        if (StringUtils.isBlank(contextPath)) {
-            contextPath = "/";
-        }
+        contextPath = Texts.defaultIfBlank(contextPath, "/");
         String hostAddress = InetAddress.getLoopbackAddress().getHostAddress();
         log.info("服务已启动: http://{}:{}{}", hostAddress, serverPort, contextPath);
     }

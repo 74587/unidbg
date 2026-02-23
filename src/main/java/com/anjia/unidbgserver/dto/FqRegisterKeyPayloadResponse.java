@@ -1,28 +1,19 @@
 package com.anjia.unidbgserver.dto;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
-import lombok.AllArgsConstructor;
-import lombok.Data;
-import lombok.NoArgsConstructor;
 
 /**
- * FQNovel 注册密钥载荷
- * 对应 Rust 中的 FqRegisterKeyPayload 结构
+ * FQNovel 注册密钥响应载荷。
  */
-@Data
-@NoArgsConstructor
-@AllArgsConstructor
-public class FqRegisterKeyPayloadResponse {
+public record FqRegisterKeyPayloadResponse(
+    @JsonProperty("key") String key,
+    @JsonProperty("keyver") long keyver
+) {
+    public String getKey() {
+        return key;
+    }
 
-    /**
-     * 密钥内容 (加密后的)
-     */
-    @JsonProperty("key")
-    private String key;
-
-    /**
-     * 密钥版本
-     */
-    @JsonProperty("keyver")
-    private long keyver;
+    public long getKeyver() {
+        return keyver;
+    }
 }

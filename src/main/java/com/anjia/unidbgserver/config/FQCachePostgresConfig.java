@@ -1,12 +1,16 @@
 package com.anjia.unidbgserver.config;
 
+import com.anjia.unidbgserver.utils.Texts;
 import com.zaxxer.hikari.HikariConfig;
 import com.zaxxer.hikari.HikariDataSource;
-import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
+import org.springframework.context.annotation.Condition;
+import org.springframework.context.annotation.ConditionContext;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.context.annotation.Conditional;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.core.type.AnnotatedTypeMetadata;
 import org.springframework.jdbc.core.JdbcTemplate;
 
 import javax.sql.DataSource;
@@ -18,23 +22,27 @@ import java.nio.charset.StandardCharsets;
 /**
  * PostgreSQL 章节缓存数据源配置（配置 DB_URL 后自动生效）。
  */
-@Slf4j
 @Configuration
-@RequiredArgsConstructor
-@Conditional(DbUrlPresentCondition.class)
+@Conditional(FQCachePostgresConfig.DbUrlPresentCondition.class)
 public class FQCachePostgresConfig {
+
+    private static final Logger log = LoggerFactory.getLogger(FQCachePostgresConfig.class);
 
     private final FQCachePostgresProperties properties;
 
+    public FQCachePostgresConfig(FQCachePostgresProperties properties) {
+        this.properties = properties;
+    }
+
     @Bean(destroyMethod = "close")
     public DataSource pgCacheDataSource() {
-        String rawUrl = trimToNull(properties.getUrl());
+        String rawUrl = Texts.trimToNull(properties.getUrl());
         if (rawUrl == null) {
             throw new IllegalStateException("未配置 DB_URL");
         }
 
         ResolvedConnection resolved = resolveConnection(rawUrl);
-        if (resolved.getUsername() == null || resolved.getUsername().trim().isEmpty()) {
+        if (!Texts.hasText(resolved.getUsername())) {
             throw new IllegalStateException("DB_URL 无效：缺少用户名（格式应为 postgresql://user:pass@host:port/db）");
         }
 
@@ -60,32 +68,24 @@ public class FQCachePostgresConfig {
         return new JdbcTemplate(pgCacheDataSource);
     }
 
-    private static String trimToNull(String value) {
-        if (value == null) {
-            return null;
-        }
-        String trimmed = value.trim();
-        return trimmed.isEmpty() ? null : trimmed;
-    }
-
     private static ResolvedConnection resolveConnection(String rawUrl) {
         String jdbcUrl = toJdbcUrl(rawUrl);
         String username = null;
         String password = "";
 
         URI uri = parseUriQuietly(rawUrl);
-        if (uri != null && ("postgresql".equalsIgnoreCase(uri.getScheme()) || "postgres".equalsIgnoreCase(uri.getScheme()))) {
-            String userInfo = trimToNull(uri.getRawUserInfo());
+        if (hasPostgresScheme(uri)) {
+            String userInfo = Texts.trimToNull(uri.getRawUserInfo());
             if (userInfo != null) {
                 int split = userInfo.indexOf(':');
                 String userPart = split >= 0 ? userInfo.substring(0, split) : userInfo;
                 String passPart = split >= 0 ? userInfo.substring(split + 1) : null;
 
                 String uriUser = decodeUriPart(userPart);
-                String uriPass = passPart == null ? null : decodeUriPart(passPart);
+                String uriPass = decodeUriPart(passPart);
 
-                username = trimToNull(uriUser);
-                password = uriPass == null ? "" : uriPass;
+                username = Texts.trimToNull(uriUser);
+                password = Texts.nullToEmpty(uriPass);
             }
         }
 
@@ -93,7 +93,7 @@ public class FQCachePostgresConfig {
     }
 
     private static String toJdbcUrl(String rawUrl) {
-        String value = trimToNull(rawUrl);
+        String value = Texts.trimToNull(rawUrl);
         if (value == null) {
             return null;
         }
@@ -102,18 +102,17 @@ public class FQCachePostgresConfig {
         if (uri == null) {
             throw new IllegalStateException("DB_URL 无效：格式错误");
         }
-        String scheme = trimToNull(uri.getScheme());
-        if (!"postgresql".equalsIgnoreCase(scheme) && !"postgres".equalsIgnoreCase(scheme)) {
+        if (!hasPostgresScheme(uri)) {
             throw new IllegalStateException("DB_URL 无效：必须以 postgresql:// 或 postgres:// 开头");
         }
 
-        String host = trimToNull(uri.getHost());
+        String host = Texts.trimToNull(uri.getHost());
         if (host == null) {
             throw new IllegalStateException("DB_URL 无效：缺少 host");
         }
 
         int port = uri.getPort();
-        String path = trimToNull(uri.getRawPath());
+        String path = Texts.trimToNull(uri.getRawPath());
         if (path == null || "/".equals(path)) {
             throw new IllegalStateException("DB_URL 无效：缺少数据库名");
         }
@@ -124,7 +123,7 @@ public class FQCachePostgresConfig {
         }
         sb.append(path);
 
-        String query = trimToNull(uri.getRawQuery());
+        String query = Texts.trimToNull(uri.getRawQuery());
         if (query != null) {
             sb.append('?').append(query);
         }
@@ -137,6 +136,11 @@ public class FQCachePostgresConfig {
         } catch (Exception ignore) {
             return null;
         }
+    }
+
+    private static boolean hasPostgresScheme(URI uri) {
+        String scheme = uri == null ? null : Texts.trimToNull(uri.getScheme());
+        return "postgresql".equalsIgnoreCase(scheme) || "postgres".equalsIgnoreCase(scheme);
     }
 
     private static String decodeUriPart(String value) {
@@ -172,6 +176,21 @@ public class FQCachePostgresConfig {
 
         private String getPassword() {
             return password;
+        }
+    }
+
+    /**
+     * 仅当 fq.cache.postgres.url 有效时启用 PostgreSQL 章节缓存组件。
+     */
+    public static final class DbUrlPresentCondition implements Condition {
+
+        @Override
+        public boolean matches(ConditionContext context, AnnotatedTypeMetadata metadata) {
+            if (context == null || context.getEnvironment() == null) {
+                return false;
+            }
+            String url = context.getEnvironment().getProperty("fq.cache.postgres.url");
+            return Texts.hasText(url);
         }
     }
 }

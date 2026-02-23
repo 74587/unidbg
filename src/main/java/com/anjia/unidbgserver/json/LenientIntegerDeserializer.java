@@ -1,5 +1,6 @@
 package com.anjia.unidbgserver.json;
 
+import com.anjia.unidbgserver.utils.Texts;
 import com.fasterxml.jackson.core.JsonParser;
 import com.fasterxml.jackson.core.JsonToken;
 import com.fasterxml.jackson.databind.DeserializationContext;
@@ -29,10 +30,8 @@ public class LenientIntegerDeserializer extends JsonDeserializer<Integer> {
             return 0;
         }
         if (token == JsonToken.VALUE_STRING) {
-            String raw = p.getValueAsString();
-            if (raw == null) return null;
-            String s = raw.trim();
-            if (s.isEmpty() || "null".equalsIgnoreCase(s)) {
+            String s = Texts.trimToNull(p.getValueAsString());
+            if (s == null || "null".equalsIgnoreCase(s)) {
                 return null;
             }
             try {
@@ -57,8 +56,8 @@ public class LenientIntegerDeserializer extends JsonDeserializer<Integer> {
             return node.intValue();
         }
         if (node.isTextual()) {
-            String s = node.asText("").trim();
-            if (s.isEmpty() || "null".equalsIgnoreCase(s)) return null;
+            String s = Texts.trimToNull(node.asText(""));
+            if (s == null || "null".equalsIgnoreCase(s)) return null;
             try {
                 return Integer.parseInt(s);
             } catch (NumberFormatException ignored) {

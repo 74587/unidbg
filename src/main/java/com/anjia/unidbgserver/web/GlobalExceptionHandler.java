@@ -1,12 +1,10 @@
 package com.anjia.unidbgserver.web;
 
 import com.anjia.unidbgserver.service.AutoRestartService;
-import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
 import org.apache.catalina.connector.ClientAbortException;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
-import org.springframework.http.MediaType;
-import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.web.HttpRequestMethodNotSupportedException;
 import org.springframework.web.bind.MissingServletRequestParameterException;
@@ -15,31 +13,30 @@ import org.springframework.web.bind.annotation.ControllerAdvice;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 import org.springframework.web.context.request.async.AsyncRequestTimeoutException;
+import org.springframework.web.servlet.NoHandlerFoundException;
 import org.springframework.web.servlet.ModelAndView;
+import org.springframework.web.servlet.resource.NoResourceFoundException;
 
-import javax.servlet.RequestDispatcher;
-import javax.servlet.http.HttpServletRequest;
-import java.util.HashMap;
-import java.util.Locale;
-import java.util.Map;
+import jakarta.servlet.RequestDispatcher;
+import jakarta.servlet.http.HttpServletRequest;
+import java.util.Objects;
 
-@Slf4j
 @ControllerAdvice
-@RequiredArgsConstructor
 public class GlobalExceptionHandler {
 
-    private static final String KEY_SUCCESS = "success";
-    private static final String KEY_CODE = "code";
-    private static final String KEY_MESSAGE = "message";
-    private static final String KEY_TIMESTAMP = "timestamp";
+    private static final Logger log = LoggerFactory.getLogger(GlobalExceptionHandler.class);
 
     private final AutoRestartService autoRestartService;
+
+    public GlobalExceptionHandler(AutoRestartService autoRestartService) {
+        this.autoRestartService = autoRestartService;
+    }
 
     @ExceptionHandler(AsyncRequestTimeoutException.class)
     public Object handleAsyncTimeout(AsyncRequestTimeoutException ex, HttpServletRequest request) {
         autoRestartService.recordFailure("ASYNC_TIMEOUT");
         log.warn("异步请求超时", ex);
-        return buildError(HttpStatus.GATEWAY_TIMEOUT, 504, "request timeout", request);
+        return buildError(HttpStatus.GATEWAY_TIMEOUT, "request timeout", request);
     }
 
     @ExceptionHandler(HttpMessageNotReadableException.class)
@@ -47,7 +44,7 @@ public class GlobalExceptionHandler {
         if (log.isDebugEnabled()) {
             log.debug("请求体解析失败: {}", ex.getMessage());
         }
-        return buildError(HttpStatus.BAD_REQUEST, 400, "Invalid request body format", request);
+        return buildError(HttpStatus.BAD_REQUEST, "Invalid request body format", request);
     }
 
     @ExceptionHandler(HttpRequestMethodNotSupportedException.class)
@@ -55,7 +52,7 @@ public class GlobalExceptionHandler {
         if (log.isDebugEnabled()) {
             log.debug("不支持的请求方法: {}", ex.getMessage());
         }
-        return buildError(HttpStatus.METHOD_NOT_ALLOWED, 405, "Method not allowed: " + ex.getMethod(), request);
+        return buildError(HttpStatus.METHOD_NOT_ALLOWED, "Method not allowed: " + ex.getMethod(), request);
     }
 
     @ExceptionHandler(MissingServletRequestParameterException.class)
@@ -64,7 +61,7 @@ public class GlobalExceptionHandler {
         if (log.isDebugEnabled()) {
             log.debug("缺少请求参数: {}", parameterName);
         }
-        return buildError(HttpStatus.BAD_REQUEST, 400, "Missing required parameter: " + parameterName, request);
+        return buildError(HttpStatus.BAD_REQUEST, "Missing required parameter: " + parameterName, request);
     }
 
     @ExceptionHandler(MethodArgumentTypeMismatchException.class)
@@ -73,7 +70,7 @@ public class GlobalExceptionHandler {
         if (log.isDebugEnabled()) {
             log.debug("请求参数类型错误: {} = {}", parameterName, ex.getValue());
         }
-        return buildError(HttpStatus.BAD_REQUEST, 400, "Invalid parameter type: " + parameterName, request);
+        return buildError(HttpStatus.BAD_REQUEST, "Invalid parameter type: " + parameterName, request);
     }
 
     @ExceptionHandler(ServletRequestBindingException.class)
@@ -81,12 +78,28 @@ public class GlobalExceptionHandler {
         if (log.isDebugEnabled()) {
             log.debug("请求绑定失败: {}", ex.getMessage());
         }
-        return buildError(HttpStatus.BAD_REQUEST, 400, "Bad request", request);
+        return buildError(HttpStatus.BAD_REQUEST, "Bad request", request);
     }
 
     @ExceptionHandler(IllegalArgumentException.class)
     public Object handleBadRequest(IllegalArgumentException ex, HttpServletRequest request) {
-        return buildError(HttpStatus.BAD_REQUEST, 400, ex.getMessage() != null ? ex.getMessage() : "bad request", request);
+        return buildError(HttpStatus.BAD_REQUEST, messageOrDefault(ex.getMessage(), "bad request"), request);
+    }
+
+    @ExceptionHandler(NoResourceFoundException.class)
+    public Object handleNoResourceFound(NoResourceFoundException ex, HttpServletRequest request) {
+        if (log.isDebugEnabled()) {
+            log.debug("静态资源不存在: {}", ex.getMessage());
+        }
+        return buildError(HttpStatus.NOT_FOUND, "Not Found", request);
+    }
+
+    @ExceptionHandler(NoHandlerFoundException.class)
+    public Object handleNoHandlerFound(NoHandlerFoundException ex, HttpServletRequest request) {
+        if (log.isDebugEnabled()) {
+            log.debug("请求路径不存在: {}", ex.getRequestURL());
+        }
+        return buildError(HttpStatus.NOT_FOUND, "Not Found", request);
     }
 
     /**
@@ -103,41 +116,20 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(Exception.class)
     public Object handleException(Exception ex, HttpServletRequest request) {
         log.error("全局异常捕获: {}", ex.getMessage(), ex);
-        return buildError(HttpStatus.INTERNAL_SERVER_ERROR, 500, "Internal Server Error", request);
+        return buildError(HttpStatus.INTERNAL_SERVER_ERROR, "Internal Server Error", request);
     }
 
-    private static ResponseEntity<Map<String, Object>> buildErrorResponse(HttpStatus status, int code, String message) {
-        Map<String, Object> body = new HashMap<>();
-        body.put(KEY_SUCCESS, false);
-        body.put(KEY_CODE, code);
-        body.put(KEY_MESSAGE, message);
-        body.put(KEY_TIMESTAMP, System.currentTimeMillis());
-        return ResponseEntity.status(status)
-            .contentType(MediaType.APPLICATION_JSON)
-            .body(body);
+    private static String messageOrDefault(String message, String defaultMessage) {
+        return Objects.requireNonNullElse(message, defaultMessage);
     }
 
-    private static Object buildError(HttpStatus status, int code, String message, HttpServletRequest request) {
-        if (isHtmlRequest(request)) {
-            if (request != null) {
-                request.setAttribute(RequestDispatcher.ERROR_STATUS_CODE, status.value());
-                request.setAttribute(RequestDispatcher.ERROR_MESSAGE, message);
-            }
-            ModelAndView modelAndView = new ModelAndView("forward:/error");
-            modelAndView.setStatus(status);
-            return modelAndView;
+    private static Object buildError(HttpStatus status, String message, HttpServletRequest request) {
+        if (request != null) {
+            request.setAttribute(RequestDispatcher.ERROR_STATUS_CODE, status.value());
+            request.setAttribute(RequestDispatcher.ERROR_MESSAGE, message);
         }
-        return buildErrorResponse(status, code, message);
-    }
-
-    private static boolean isHtmlRequest(HttpServletRequest request) {
-        if (request == null) {
-            return false;
-        }
-        String accept = request.getHeader("Accept");
-        if (accept == null || accept.trim().isEmpty()) {
-            return false;
-        }
-        return accept.toLowerCase(Locale.ROOT).contains(MediaType.TEXT_HTML_VALUE);
+        ModelAndView modelAndView = new ModelAndView("forward:/error");
+        modelAndView.setStatus(status);
+        return modelAndView;
     }
 }

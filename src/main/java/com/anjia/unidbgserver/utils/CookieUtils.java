@@ -14,16 +14,16 @@ public final class CookieUtils {
         if (cookie == null) {
             return null;
         }
-        if (installId == null || installId.trim().isEmpty()) {
+        if (!Texts.hasText(installId)) {
             return cookie;
         }
 
-        String iid = installId.trim();
+        String iid = Texts.trimToEmpty(installId);
         String lower = cookie.toLowerCase(Locale.ROOT);
         String key = "install_id=";
         int idx = lower.indexOf(key);
         if (idx < 0) {
-            String trimmed = cookie.trim();
+            String trimmed = Texts.trimToEmpty(cookie);
             if (trimmed.isEmpty()) {
                 return key + iid;
             }
@@ -41,4 +41,3 @@ public final class CookieUtils {
         return cookie.substring(0, valueStart) + iid + cookie.substring(valueEnd);
     }
 }
-

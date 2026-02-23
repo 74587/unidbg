@@ -1,69 +1,63 @@
 package com.anjia.unidbgserver.service;
 
 import com.anjia.unidbgserver.config.FQApiProperties;
-import com.anjia.unidbgserver.dto.*;
+import com.anjia.unidbgserver.dto.FqRegisterKeyPayload;
+import com.anjia.unidbgserver.dto.FqRegisterKeyPayloadResponse;
+import com.anjia.unidbgserver.dto.FqRegisterKeyResponse;
+import com.anjia.unidbgserver.dto.FqVariable;
 import com.anjia.unidbgserver.utils.FQApiUtils;
-import com.anjia.unidbgserver.utils.GzipUtils;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import com.anjia.unidbgserver.utils.Texts;
 import com.fasterxml.jackson.databind.JsonNode;
-import lombok.extern.slf4j.Slf4j;
-import org.springframework.http.*;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
-import org.springframework.web.client.RestTemplate;
 
-import javax.annotation.Resource;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.Objects;
 
 /**
  * FQNovel RegisterKey缓存服务
  * 在启动时获取registerkey并缓存，支持keyver比较和自动刷新
  */
-@Slf4j
 @Service
 public class FQRegisterKeyService {
 
-    @Resource(name = "fqEncryptWorker")
-    private FQEncryptServiceWorker fqEncryptServiceWorker;
+    private static final Logger log = LoggerFactory.getLogger(FQRegisterKeyService.class);
+    private static final String REGISTER_KEY_PATH = "/reading/crypt/registerkey";
+    private static final String REGISTER_KEY_CONTENT_VERSION = "0";
+    private static final long REGISTER_KEY_PAYLOAD_KEYVER = 1L;
 
-    @Resource
-    private FQApiProperties fqApiProperties;
+    private final FQApiProperties fqApiProperties;
+    private final FQApiUtils fqApiUtils;
+    private final UpstreamSignedRequestService upstreamSignedRequestService;
+    private final ObjectMapper objectMapper;
 
-    @Resource
-    private FQApiUtils fqApiUtils;
-
-    @Resource
-    private UpstreamRateLimiter upstreamRateLimiter;
-
-    @Resource
-    private RestTemplate restTemplate;
-
-    @Resource
-    private ObjectMapper objectMapper;
+    public FQRegisterKeyService(
+        FQApiProperties fqApiProperties,
+        FQApiUtils fqApiUtils,
+        UpstreamSignedRequestService upstreamSignedRequestService,
+        ObjectMapper objectMapper
+    ) {
+        this.fqApiProperties = fqApiProperties;
+        this.fqApiUtils = fqApiUtils;
+        this.upstreamSignedRequestService = upstreamSignedRequestService;
+        this.objectMapper = objectMapper;
+    }
 
     // 缓存的registerkey响应，按keyver分组
     private final LinkedHashMap<Long, CacheEntry> cachedRegisterKeys = new LinkedHashMap<Long, CacheEntry>(64, 0.75f, true) {
         @Override
         protected boolean removeEldestEntry(Map.Entry<Long, CacheEntry> eldest) {
-            int maxEntries = 32;
-            if (fqApiProperties != null) {
-                maxEntries = Math.max(1, fqApiProperties.getRegisterKeyCacheMaxEntries());
-            }
-            return size() > maxEntries;
+            return size() > registerKeyCacheMaxEntries();
         }
     };
 
     // 当前默认的registerkey响应
     private volatile FqRegisterKeyResponse currentRegisterKey;
     private volatile long currentRegisterKeyExpiresAtMs = 0L;
-
-    /**
-     * 获取默认FQ变量（延迟初始化）
-     */
-    private FqVariable getDefaultFqVariable() {
-        return new FqVariable(fqApiProperties);
-    }
 
     /**
      * 获取registerkey，支持keyver比较和自动刷新
@@ -88,28 +82,26 @@ public class FQRegisterKeyService {
 
         // 检查是否已经缓存了指定keyver的key
         FqRegisterKeyResponse cached = getCachedIfPresent(normalizedKeyver);
-        if (cached != null && cached.getData() != null) {
+        if (hasRegisterKey(cached)) {
             log.debug("使用缓存的registerkey，keyver: {}", normalizedKeyver);
             return cached;
         }
 
         // 如果当前缓存的key的keyver匹配，直接返回
-        if (isCurrentRegisterKeyValid() && currentRegisterKey.getData().getKeyver() == normalizedKeyver.longValue()) {
+        if (isCurrentRegisterKeyValid() && matchesKeyver(currentRegisterKey, normalizedKeyver)) {
             log.debug("当前registerkey版本匹配，keyver: {}", normalizedKeyver);
             return currentRegisterKey;
         }
 
         // 不再盲目使用“当前 key”尝试解密：先刷新一次，仍不匹配则明确失败。
         FqRegisterKeyResponse refreshed = refreshRegisterKey();
-        if (refreshed != null
-            && refreshed.getData() != null
-            && refreshed.getData().getKeyver() == normalizedKeyver.longValue()) {
+        Long refreshedKeyver = extractKeyver(refreshed);
+        if (matchesKeyver(refreshed, normalizedKeyver)) {
             return refreshed;
         }
 
-        Object currentKeyver = (refreshed != null && refreshed.getData() != null)
-            ? refreshed.getData().getKeyver() : "无";
-        throw new IllegalStateException("registerkey 版本不匹配 - 当前keyver=" + currentKeyver
+        Object mismatchedCurrentKeyver = Objects.requireNonNullElse(refreshedKeyver, "无");
+        throw new IllegalStateException("registerkey 版本不匹配 - 当前keyver=" + mismatchedCurrentKeyver
             + "，需要keyver=" + normalizedKeyver + "。已刷新仍不匹配，终止解密");
     }
 
@@ -128,7 +120,16 @@ public class FQRegisterKeyService {
     public synchronized FqRegisterKeyResponse refreshRegisterKey() throws Exception {
         log.debug("刷新 registerkey...");
         FqRegisterKeyResponse response = fetchRegisterKey();
+        long keyver = validateRefreshedRegisterKey(response);
 
+        long expiresAt = putCache(keyver, response);
+        currentRegisterKey = response;
+        currentRegisterKeyExpiresAtMs = expiresAt;
+        log.debug("registerkey 刷新成功：keyver={}", keyver);
+        return response;
+    }
+
+    private long validateRefreshedRegisterKey(FqRegisterKeyResponse response) {
         if (response == null) {
             throw new IllegalStateException("刷新registerkey失败，响应为空");
         }
@@ -138,20 +139,17 @@ public class FQRegisterKeyService {
                 + ", message=" + response.getMessage());
         }
 
-        if (response.getData() == null || response.getData().getKey() == null || response.getData().getKey().trim().isEmpty()) {
+        FqRegisterKeyPayloadResponse data = response.getData();
+        if (data == null || !Texts.hasText(data.getKey())) {
             throw new IllegalStateException("刷新registerkey失败，响应缺少有效key");
         }
 
-        long keyver = response.getData().getKeyver();
+        long keyver = data.getKeyver();
         if (keyver <= 0) {
             throw new IllegalStateException("刷新registerkey失败，响应缺少有效keyver");
         }
 
-        long expiresAt = putCache(keyver, response);
-        currentRegisterKey = response;
-        currentRegisterKeyExpiresAtMs = expiresAt;
-        log.debug("registerkey 刷新成功：keyver={}", keyver);
-        return response;
+        return keyver;
     }
 
     /**
@@ -160,10 +158,10 @@ public class FQRegisterKeyService {
      * @return RegisterKey响应
      */
     private FqRegisterKeyResponse fetchRegisterKey() throws Exception {
-        FqVariable var = getDefaultFqVariable();
+        FqVariable var = new FqVariable(fqApiProperties);
 
         // 使用工具类构建URL和参数
-        String url = fqApiUtils.getBaseUrl() + "/reading/crypt/registerkey";
+        String url = fqApiUtils.getBaseUrl() + REGISTER_KEY_PATH;
         Map<String, String> params = fqApiUtils.buildCommonApiParams(var);
         String fullUrl = fqApiUtils.buildUrlWithParams(url, params);
 
@@ -173,35 +171,25 @@ public class FQRegisterKeyService {
         // 使用工具类构建请求头
         Map<String, String> headers = fqApiUtils.buildRegisterKeyHeaders(currentTime);
 
-        // 使用现有的签名服务生成签名
-        Map<String, String> signedHeaders = fqEncryptServiceWorker.generateSignatureHeadersSync(fullUrl, headers);
-        if (signedHeaders == null || signedHeaders.isEmpty()) {
-            throw new IllegalStateException("签名生成失败，无法请求 registerkey");
-        }
-
-        // 发起API请求
-        HttpHeaders httpHeaders = new HttpHeaders();
-        headers.forEach(httpHeaders::set);
-        signedHeaders.forEach(httpHeaders::set);
-
         // 创建请求载荷
         FqRegisterKeyPayload payload = buildRegisterKeyPayload(var);
-        HttpEntity<FqRegisterKeyPayload> entity = new HttpEntity<>(payload, httpHeaders);
 
         log.debug("发送registerkey请求到: {}", fullUrl);
         log.debug("请求时间戳: {}", currentTime);
-        log.debug("签名请求头: {}", httpHeaders);
         log.debug("请求载荷: content={}, keyver={}", payload.getContent(), payload.getKeyver());
 
-        upstreamRateLimiter.acquire();
-        ResponseEntity<byte[]> response = restTemplate.exchange(fullUrl, HttpMethod.POST, entity, byte[].class);
-
-        String responseBody = GzipUtils.decompressGzipResponse(response.getBody());
-        if (log.isDebugEnabled()) {
-            log.debug("registerkey原始响应: {}", responseBody.length() > 800 ? responseBody.substring(0, 800) + "..." : responseBody);
+        UpstreamSignedRequestService.UpstreamJsonResult upstream =
+            upstreamSignedRequestService.executeSignedJsonPost(fullUrl, headers, payload);
+        if (upstream == null) {
+            throw new IllegalStateException("签名生成失败，无法请求 registerkey");
         }
 
-        JsonNode root = objectMapper.readTree(responseBody);
+        String responseBody = upstream.getResponseBody();
+        if (log.isDebugEnabled()) {
+            log.debug("registerkey原始响应: {}", Texts.truncate(Texts.nullToEmpty(responseBody), 800));
+        }
+
+        JsonNode root = upstream.getJsonBody();
         FqRegisterKeyResponse parsed = objectMapper.treeToValue(root, FqRegisterKeyResponse.class);
 
         if (parsed == null) {
@@ -210,7 +198,7 @@ public class FQRegisterKeyService {
 
         log.debug("registerkey请求响应: code={}, message={}, keyver={}",
             parsed.getCode(), parsed.getMessage(),
-            parsed.getData() != null ? parsed.getData().getKeyver() : "null");
+            Objects.requireNonNullElse(extractKeyver(parsed), "null"));
 
         return parsed;
     }
@@ -231,8 +219,8 @@ public class FQRegisterKeyService {
 
     private FqRegisterKeyPayload buildRegisterKeyPayload(FqVariable var) throws Exception {
         FqCrypto crypto = new FqCrypto(FqCrypto.REG_KEY);
-        String content = crypto.newRegisterKeyContent(var.getServerDeviceId(), "0");
-        return new FqRegisterKeyPayload(content, 1L);
+        String content = crypto.newRegisterKeyContent(var.getServerDeviceId(), REGISTER_KEY_CONTENT_VERSION);
+        return new FqRegisterKeyPayload(content, REGISTER_KEY_PAYLOAD_KEYVER);
     }
 
     /**
@@ -240,8 +228,7 @@ public class FQRegisterKeyService {
      */
     public void invalidateCurrentKey() {
         synchronized (this) {
-            currentRegisterKey = null;
-            currentRegisterKeyExpiresAtMs = 0L;
+            clearCurrentKeyLocked();
         }
         if (log.isDebugEnabled()) {
             log.debug("registerkey当前键已失效");
@@ -256,9 +243,9 @@ public class FQRegisterKeyService {
             Map<String, Object> status = new HashMap<>();
             status.put("cachedKeyversCount", cachedRegisterKeys.size());
             status.put("cachedKeyvers", new java.util.ArrayList<>(cachedRegisterKeys.keySet()));
-            status.put("currentKeyver", currentRegisterKey != null && currentRegisterKey.getData() != null ? currentRegisterKey.getData().getKeyver() : null);
-            status.put("cacheMaxEntries", Math.max(1, fqApiProperties.getRegisterKeyCacheMaxEntries()));
-            status.put("cacheTtlMs", Math.max(0L, fqApiProperties.getRegisterKeyCacheTtlMs()));
+            status.put("currentKeyver", extractKeyver(currentRegisterKey));
+            status.put("cacheMaxEntries", registerKeyCacheMaxEntries());
+            status.put("cacheTtlMs", registerKeyCacheTtlMs());
             return status;
         }
     }
@@ -268,8 +255,7 @@ public class FQRegisterKeyService {
         if (entry == null) {
             return null;
         }
-        long ttlMs = Math.max(0L, fqApiProperties.getRegisterKeyCacheTtlMs());
-        if (ttlMs > 0 && entry.expiresAtMs < System.currentTimeMillis()) {
+        if (isCacheEntryExpired(entry)) {
             cachedRegisterKeys.remove(keyver);
             return null;
         }
@@ -287,20 +273,59 @@ public class FQRegisterKeyService {
             return false;
         }
         if (isExpired(currentRegisterKeyExpiresAtMs)) {
-            currentRegisterKey = null;
-            currentRegisterKeyExpiresAtMs = 0L;
+            clearCurrentKeyLocked();
             return false;
         }
         return true;
     }
 
+    private void clearCurrentKeyLocked() {
+        currentRegisterKey = null;
+        currentRegisterKeyExpiresAtMs = 0L;
+    }
+
     private long computeExpiresAt(long nowMs) {
-        long ttlMs = Math.max(0L, fqApiProperties.getRegisterKeyCacheTtlMs());
+        long ttlMs = registerKeyCacheTtlMs();
         return ttlMs <= 0 ? Long.MAX_VALUE : (nowMs + ttlMs);
+    }
+
+    private int registerKeyCacheMaxEntries() {
+        return Math.max(1, fqApiProperties.getRegisterKeyCacheMaxEntries());
+    }
+
+    private long registerKeyCacheTtlMs() {
+        return Math.max(0L, fqApiProperties.getRegisterKeyCacheTtlMs());
     }
 
     private boolean isExpired(long expiresAtMs) {
         return expiresAtMs > 0L && expiresAtMs < System.currentTimeMillis();
+    }
+
+    private boolean isCacheEntryExpired(CacheEntry entry) {
+        if (entry == null) {
+            return true;
+        }
+        long ttlMs = registerKeyCacheTtlMs();
+        return ttlMs > 0 && entry.expiresAtMs < System.currentTimeMillis();
+    }
+
+    private static Long extractKeyver(FqRegisterKeyResponse response) {
+        if (response == null || response.getData() == null) {
+            return null;
+        }
+        return response.getData().getKeyver();
+    }
+
+    private static boolean hasRegisterKey(FqRegisterKeyResponse response) {
+        return extractKeyver(response) != null;
+    }
+
+    private static boolean matchesKeyver(FqRegisterKeyResponse response, Long expectedKeyver) {
+        if (expectedKeyver == null) {
+            return false;
+        }
+        Long actualKeyver = extractKeyver(response);
+        return actualKeyver != null && actualKeyver.longValue() == expectedKeyver.longValue();
     }
 
     private static final class CacheEntry {

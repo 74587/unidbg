@@ -15,18 +15,28 @@ import java.nio.charset.Charset;
  * </ul>
  */
 public final class ConsoleNoiseFilter {
+    private static final String PROP_FILTER_CONSOLE_NOISE = "fq.log.filterConsoleNoise";
+    private static final String DEFAULT_FILTER_CONSOLE_NOISE = "true";
 
     private ConsoleNoiseFilter() {}
 
     public static void install() {
-        String enabled = System.getProperty("fq.log.filterConsoleNoise", "true");
-        if ("false".equalsIgnoreCase(enabled)) {
+        if (!isFilterEnabled()) {
             return;
         }
 
         Charset charset = Charset.defaultCharset();
-        System.setErr(new PrintStream(new LineFilteringOutputStream(System.err, charset), true));
-        System.setOut(new PrintStream(new LineFilteringOutputStream(System.out, charset), true));
+        System.setErr(createFilteringPrintStream(System.err, charset));
+        System.setOut(createFilteringPrintStream(System.out, charset));
+    }
+
+    private static boolean isFilterEnabled() {
+        String enabled = System.getProperty(PROP_FILTER_CONSOLE_NOISE, DEFAULT_FILTER_CONSOLE_NOISE);
+        return !"false".equalsIgnoreCase(enabled);
+    }
+
+    private static PrintStream createFilteringPrintStream(OutputStream delegate, Charset charset) {
+        return new PrintStream(new LineFilteringOutputStream(delegate, charset), true);
     }
 
     static final class LineFilteringOutputStream extends OutputStream {
@@ -85,8 +95,8 @@ public final class ConsoleNoiseFilter {
             if (line == null) {
                 return false;
             }
-            String trimmed = line.trim();
-            if (trimmed.isEmpty()) {
+            String trimmed = Texts.trimToNull(line);
+            if (trimmed == null) {
                 return false;
             }
 

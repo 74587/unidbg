@@ -1,9 +1,13 @@
 package com.anjia.unidbgserver.utils;
 
+import java.util.regex.Pattern;
+
 /**
  * 轻量字符串工具，统一空白判断和回退取值。
  */
 public final class Texts {
+
+    private static final Pattern DIGITS_PATTERN = Pattern.compile("^\\d+$");
 
     private Texts() {
     }
@@ -26,5 +30,40 @@ public final class Texts {
             }
         }
         return "";
+    }
+
+    public static String trimToNull(String value) {
+        if (value == null) {
+            return null;
+        }
+        String trimmed = value.trim();
+        return trimmed.isEmpty() ? null : trimmed;
+    }
+
+    public static String trimToEmpty(String value) {
+        return value == null ? "" : value.trim();
+    }
+
+    public static String nullToEmpty(String value) {
+        return value == null ? "" : value;
+    }
+
+    public static boolean isDigits(String value) {
+        return hasText(value) && DIGITS_PATTERN.matcher(value).matches();
+    }
+
+    public static String defaultIfBlank(String value, String defaultValue) {
+        String trimmed = trimToNull(value);
+        return trimmed != null ? trimmed : defaultValue;
+    }
+
+    public static String truncate(String value, int maxLength) {
+        if (value == null) {
+            return "";
+        }
+        if (maxLength <= 0 || value.length() <= maxLength) {
+            return value;
+        }
+        return value.substring(0, maxLength) + "...";
     }
 }
