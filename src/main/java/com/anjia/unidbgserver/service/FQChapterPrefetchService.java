@@ -96,7 +96,7 @@ public class FQChapterPrefetchService {
         long chapterTtl = downloadProperties.getChapterCacheTtlMs();
         long chapterNegativeTtl = Math.max(0L, downloadProperties.getChapterNegativeCacheTtlMs());
         int dirMax = Math.max(MIN_DIRECTORY_CACHE_MAX_ENTRIES, chapterMax / 10);
-        long dirTtl = downloadProperties.getDirectoryCacheTtlMs();
+        long dirTtl = downloadProperties.getApiDirectoryCacheTtlMs();
 
         this.chapterCache = LocalCacheFactory.build(chapterMax, chapterTtl);
         this.chapterNegativeCache = chapterNegativeTtl > 0 ? LocalCacheFactory.build(chapterMax, chapterNegativeTtl) : null;

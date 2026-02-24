@@ -2,72 +2,32 @@ package com.anjia.unidbgserver.service;
 
 import com.anjia.unidbgserver.config.UnidbgProperties;
 import com.anjia.unidbgserver.utils.ProcessLifecycle;
-import com.github.unidbg.worker.Worker;
-import com.github.unidbg.worker.WorkerPool;
-import com.github.unidbg.worker.WorkerPoolFactory;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
+import jakarta.annotation.PreDestroy;
 import java.util.Map;
-import java.util.concurrent.TimeUnit;
+import java.util.Objects;
 import java.util.concurrent.atomic.AtomicLong;
-import java.util.concurrent.locks.LockSupport;
 
 @Service("fqEncryptWorker")
-public class FQEncryptServiceWorker extends Worker {
+public class FQEncryptServiceWorker {
 
     private static final Logger log = LoggerFactory.getLogger(FQEncryptServiceWorker.class);
 
     private static final AtomicLong RESET_EPOCH = new AtomicLong(0L);
     private static final AtomicLong LAST_RESET_REQUEST_AT_MS = new AtomicLong(0L);
     private static volatile long RESET_COOLDOWN_MS = 2000L;
-    private static final long WORKER_BORROW_TIMEOUT_SECONDS = 2L;
-    private static final long WORKER_BORROW_RETRY_DELAY_MS = 50L;
-    private static final long WORKER_BORROW_MAX_WAIT_MS = 15_000L;
-
-    private UnidbgProperties unidbgProperties;
-    private WorkerPool pool;
-    private FQEncryptService fqEncryptService;
+    private final FQEncryptService signer;
     private long localResetEpoch = 0L;
 
-    public FQEncryptServiceWorker() {
-        super(WorkerPoolFactory.create(FQEncryptServiceWorker::new, Runtime.getRuntime().availableProcessors()));
-    }
-
-    public FQEncryptServiceWorker(WorkerPool pool) {
-        super(pool);
-    }
-
     @Autowired
-    public FQEncryptServiceWorker(UnidbgProperties unidbgProperties,
-                                    @Value("${spring.task.execution.pool.core-size:4}") int poolSize) {
-        super(WorkerPoolFactory.create(FQEncryptServiceWorker::new, Runtime.getRuntime().availableProcessors()));
-        this.unidbgProperties = unidbgProperties;
-        if (unidbgProperties != null) {
-            RESET_COOLDOWN_MS = Math.max(0L, unidbgProperties.getResetCooldownMs());
-        }
-        if (this.unidbgProperties.isAsync()) {
-            // 修复：使用配置的线程池大小，确保至少为1
-            int actualPoolSize = Math.max(1, poolSize);
-            pool = WorkerPoolFactory.create(pool -> new FQEncryptServiceWorker(
-                unidbgProperties.isVerbose(), unidbgProperties.getApkPath(), unidbgProperties.getApkClasspath(), pool), actualPoolSize);
-            log.info("FQ签名服务线程池大小为:{}", actualPoolSize);
-        } else {
-            this.fqEncryptService = new FQEncryptService(unidbgProperties);
-        }
-    }
-
-    public FQEncryptServiceWorker(boolean verbose, String apkPath, String apkClasspath, WorkerPool pool) {
-        super(pool);
-        this.unidbgProperties = new UnidbgProperties();
-        unidbgProperties.setVerbose(verbose);
-        unidbgProperties.setApkPath(apkPath);
-        unidbgProperties.setApkClasspath(apkClasspath);
-        log.info("FQ签名服务 - 是否打印详细信息:{}", verbose);
-        this.fqEncryptService = new FQEncryptService(unidbgProperties);
+    public FQEncryptServiceWorker(UnidbgProperties unidbgProperties) {
+        UnidbgProperties properties = Objects.requireNonNull(unidbgProperties, "unidbgProperties must not be null");
+        RESET_COOLDOWN_MS = Math.max(0L, properties.getResetCooldownMs());
+        this.signer = new FQEncryptService(properties);
     }
 
     public static long requestGlobalReset(String reason) {
@@ -97,65 +57,9 @@ public class FQEncryptServiceWorker extends Worker {
      * @param headerMap 请求头的Map
      * @return 包含签名信息的签名头
      */
-    public Map<String, String> generateSignatureHeadersSync(String url, Map<String, String> headerMap) {
-        Map<String, String> result;
-
-        if (this.unidbgProperties.isAsync()) {
-            FQEncryptServiceWorker worker = null;
-            try {
-                worker = borrowWorkerOrThrow();
-                result = worker.doWorkWithMap(url, headerMap);
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-                throw new IllegalStateException("签名任务被中断", e);
-            } finally {
-                if (worker != null) {
-                    pool.release(worker);
-                }
-            }
-        } else {
-            // 同步模式直接使用当前实例
-            synchronized (this) {
-                result = this.doWorkWithMap(url, headerMap);
-            }
-        }
-
-        return result;
-    }
-
-    /**
-     * 执行签名生成工作 (Map格式headers)
-     */
-    private Map<String, String> doWorkWithMap(String url, Map<String, String> headerMap) {
+    public synchronized Map<String, String> generateSignatureHeadersSync(String url, Map<String, String> headerMap) {
         ensureResetUpToDate();
-        return fqEncryptService.generateSignatureHeaders(url, headerMap);
-    }
-
-    private FQEncryptServiceWorker borrowWorkerOrThrow() throws InterruptedException {
-        if (pool == null) {
-            throw new IllegalStateException("签名工作池未初始化");
-        }
-
-        long deadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(WORKER_BORROW_MAX_WAIT_MS);
-        while (true) {
-            if (ProcessLifecycle.isShuttingDown()) {
-                throw new IllegalStateException("服务正在退出中");
-            }
-
-            FQEncryptServiceWorker worker = pool.borrow(WORKER_BORROW_TIMEOUT_SECONDS, TimeUnit.SECONDS);
-            if (worker != null) {
-                return worker;
-            }
-
-            if (System.nanoTime() >= deadline) {
-                throw new IllegalStateException("签名服务繁忙，请稍后重试");
-            }
-
-            LockSupport.parkNanos(TimeUnit.MILLISECONDS.toNanos(WORKER_BORROW_RETRY_DELAY_MS));
-            if (Thread.currentThread().isInterrupted()) {
-                throw new InterruptedException("worker borrow interrupted");
-            }
-        }
+        return signer.generateSignatureHeaders(url, headerMap);
     }
 
     private void ensureResetUpToDate() {
@@ -166,24 +70,16 @@ public class FQEncryptServiceWorker extends Worker {
         if (epoch == localResetEpoch) {
             return;
         }
-        if (fqEncryptService != null) {
-            fqEncryptService.reset("RESET_EPOCH:" + epoch);
-        }
+        signer.reset("RESET_EPOCH:" + epoch);
         localResetEpoch = epoch;
     }
 
-    @Override
+    @PreDestroy
     public void destroy() {
-        // 修复：添加异常处理，确保资源清理的健壮性
-        if (fqEncryptService != null) {
-            try {
-                fqEncryptService.destroy();
-            } catch (Exception e) {
-                log.warn("销毁FQ签名服务时发生异常", e);
-            }
+        try {
+            signer.destroy();
+        } catch (Exception e) {
+            log.warn("销毁FQ签名服务时发生异常", e);
         }
-        
-        // 注意：WorkerPool 由 unidbg 框架管理，不需要手动关闭
-        // 线程池会在 Worker 实例销毁时自动清理
     }
 }

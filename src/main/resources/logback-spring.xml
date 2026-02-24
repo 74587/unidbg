@@ -33,12 +33,12 @@
     <logger name="org.springframework.boot.web.servlet.context" level="WARN"/>
     <logger name="org.springframework.web.servlet.DispatcherServlet" level="WARN"/>
     <logger name="org.apache" level="WARN"/>
-    <logger name="com.zaxxer.hikari" level="WARN"/>
-    <logger name="com.zaxxer.hikari.HikariDataSource" level="WARN"/>
-    <logger name="com.zaxxer.hikari.pool.HikariPool" level="WARN"/>
     <logger name="org.apache.tomcat.util.http.Rfc6265CookieProcessor" level="WARN"/>
     <logger name="org.apache.catalina.startup.DigesterFactory" level="OFF"/>
     <logger name="org.apache.catalina.core.ContainerBase.[Tomcat].[localhost]" level="OFF"/>
+    <logger name="com.zaxxer.hikari" level="WARN"/>
+    <logger name="com.zaxxer.hikari.HikariDataSource" level="WARN"/>
+    <logger name="com.zaxxer.hikari.pool.HikariPool" level="WARN"/>
 
     <root level="INFO">
         <appender-ref ref="CONSOLE"/>

@@ -7,6 +7,11 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
+import jakarta.annotation.PreDestroy;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ThreadFactory;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -20,6 +25,8 @@ public class AutoRestartService {
     private final FQDownloadProperties downloadProperties;
     private final FQDeviceRotationService deviceRotationService;
     private final FQRegisterKeyService registerKeyService;
+    private final ScheduledExecutorService restartExecutor =
+        Executors.newScheduledThreadPool(2, new NamedDaemonThreadFactory("auto-restart-"));
 
     public AutoRestartService(
         FQDownloadProperties downloadProperties,
@@ -88,23 +95,21 @@ public class AutoRestartService {
         log.error("连续异常达到阈值，准备退出进程触发重启: count={}, threshold={}, reason={}", count, threshold, reason);
         int exitCode = 2;
         long exitDelayMs = autoRestartExitDelayMs();
-        startNamedThread("auto-restart-exit", () -> {
-            sleepQuietly(exitDelayMs);
+        restartExecutor.schedule(() -> {
             try {
                 System.exit(exitCode);
             } catch (Throwable t) {
                 Runtime.getRuntime().halt(exitCode);
             }
-        });
+        }, exitDelayMs, TimeUnit.MILLISECONDS);
 
         long forceHaltAfterMs = autoRestartForceHaltAfterMs();
         if (forceHaltAfterMs > 0) {
-            startNamedThread("auto-restart-halt", () -> {
-                sleepQuietly(forceHaltAfterMs);
+            restartExecutor.schedule(() -> {
                 // 如果 System.exit 因 shutdown hook 卡住，这里会强制结束，保证 Docker/systemd 能拉起
                 log.error("System.exit 未能在期望时间内退出，强制 halt 结束进程: exitCode={}, waitedMs={}", exitCode, forceHaltAfterMs);
                 Runtime.getRuntime().halt(exitCode);
-            });
+            }, forceHaltAfterMs, TimeUnit.MILLISECONDS);
         }
     }
 
@@ -130,7 +135,7 @@ public class AutoRestartService {
         String selfHealReason = prefixedReason(REASON_PREFIX_AUTO_SELF_HEAL, reason);
 
         // 自愈逻辑放后台线程，避免阻塞当前业务线程；失败也不影响后续退回到 auto-restart。
-        startNamedThread("auto-restart-self-heal", () -> {
+        restartExecutor.execute(() -> {
             try {
                 runSelfHealStep("请求重置 signer 失败", () -> FQEncryptServiceWorker.requestGlobalReset(selfHealReason));
                 runSelfHealStep("失效当前 registerkey 失败", registerKeyService::invalidateCurrentKey);
@@ -183,15 +188,24 @@ public class AutoRestartService {
         }
     }
 
-    private static void startNamedThread(String name, Runnable task) {
-        new Thread(task, name).start();
+    @PreDestroy
+    public void destroy() {
+        restartExecutor.shutdownNow();
     }
 
-    private static void sleepQuietly(long millis) {
-        try {
-            Thread.sleep(millis);
-        } catch (InterruptedException ignored) {
-            Thread.currentThread().interrupt();
+    private static final class NamedDaemonThreadFactory implements ThreadFactory {
+        private final String prefix;
+        private final AtomicInteger seq = new AtomicInteger(0);
+
+        private NamedDaemonThreadFactory(String prefix) {
+            this.prefix = prefix;
+        }
+
+        @Override
+        public Thread newThread(Runnable runnable) {
+            Thread thread = new Thread(runnable, prefix + seq.incrementAndGet());
+            thread.setDaemon(true);
+            return thread;
         }
     }
 }

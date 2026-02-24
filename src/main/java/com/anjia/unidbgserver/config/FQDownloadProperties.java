@@ -85,11 +85,6 @@ public class FQDownloadProperties {
     private boolean chapterIncludeRawContent = false;
 
     /**
-     * 目录缓存 TTL（ms）
-     */
-    private long directoryCacheTtlMs = 30 * 60 * 1000L;
-
-    /**
      * 搜索结果缓存最大条数（短 TTL，避免搜索页频繁回源）
      */
     private int searchCacheMaxEntries = 256;
@@ -268,14 +263,6 @@ public class FQDownloadProperties {
 
     public void setChapterIncludeRawContent(boolean chapterIncludeRawContent) {
         this.chapterIncludeRawContent = chapterIncludeRawContent;
-    }
-
-    public long getDirectoryCacheTtlMs() {
-        return directoryCacheTtlMs;
-    }
-
-    public void setDirectoryCacheTtlMs(long directoryCacheTtlMs) {
-        this.directoryCacheTtlMs = directoryCacheTtlMs;
     }
 
     public int getSearchCacheMaxEntries() {

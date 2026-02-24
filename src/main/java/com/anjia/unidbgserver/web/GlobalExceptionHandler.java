@@ -1,7 +1,6 @@
 package com.anjia.unidbgserver.web;
 
 import com.anjia.unidbgserver.service.AutoRestartService;
-import org.apache.catalina.connector.ClientAbortException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
@@ -19,6 +18,9 @@ import org.springframework.web.servlet.resource.NoResourceFoundException;
 
 import jakarta.servlet.RequestDispatcher;
 import jakarta.servlet.http.HttpServletRequest;
+import java.io.EOFException;
+import java.net.SocketException;
+import java.nio.channels.ClosedChannelException;
 import java.util.Objects;
 
 @ControllerAdvice
@@ -106,8 +108,8 @@ public class GlobalExceptionHandler {
      * 客户端主动断开连接（浏览器取消请求/网络中断）属于常见噪音，不按服务异常记录。
      * 使用 void 返回避免再次写响应触发二次 Broken pipe 日志。
      */
-    @ExceptionHandler(ClientAbortException.class)
-    public void handleClientAbort(ClientAbortException ex) {
+    @ExceptionHandler({SocketException.class, EOFException.class, ClosedChannelException.class})
+    public void handleClientAbort(Exception ex) {
         if (log.isDebugEnabled()) {
             log.debug("客户端已断开连接: {}", ex.getMessage());
         }

@@ -16,11 +16,6 @@ public class UnidbgProperties {
     private boolean verbose;
 
     /**
-     * 是否使用异步多线程
-     */
-    private boolean async = true;
-
-    /**
      * signer（unidbg）全局重置最小间隔（ms）。
      * <p>
      * 用于抑制上游抖动导致的“频繁 reset -> 更慢 -> 更容易空响应”的风暴。
@@ -46,14 +41,6 @@ public class UnidbgProperties {
 
     public void setVerbose(boolean verbose) {
         this.verbose = verbose;
-    }
-
-    public boolean isAsync() {
-        return async;
-    }
-
-    public void setAsync(boolean async) {
-        this.async = async;
     }
 
     public long getResetCooldownMs() {

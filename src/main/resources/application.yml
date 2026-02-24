@@ -13,18 +13,6 @@ spring:
   threads:
     virtual:
       enabled: true
-  task:
-    execution:
-      pool:
-        allow-core-thread-timeout: true
-        core-size: 8
-        keep-alive: 60s
-        max-size: 8
-
-application:
-  unidbg:
-    verbose: false
-    async: false
 
 fq:
   cache:
