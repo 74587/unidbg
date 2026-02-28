@@ -208,12 +208,7 @@ public class IdleFQ extends AbstractJni implements IOResolver<AndroidFileIO> {
      * 创建临时目录
      */
     private File createTempDir(String prefix) throws IOException {
-        File tempDir = File.createTempFile(prefix, "");
-        tempDir.delete();
-        if (!tempDir.mkdirs()) {
-            throw new IOException("无法创建临时目录: " + tempDir);
-        }
-        return tempDir;
+        return Files.createTempDirectory(prefix).toFile();
     }
 
     /**
@@ -315,98 +310,91 @@ public class IdleFQ extends AbstractJni implements IOResolver<AndroidFileIO> {
     // 环境补充相关方法
     @Override
     public DvmObject<?> callStaticObjectMethodV(BaseVM vm, DvmClass dvmClass, String signature, VaList vaList) {
-        switch (signature) {
-            case "com/bytedance/mobsec/metasec/ml/MS->b(IIJLjava/lang/String;Ljava/lang/Object;)Ljava/lang/Object;": {
+        return switch (signature) {
+            case "com/bytedance/mobsec/metasec/ml/MS->b(IIJLjava/lang/String;Ljava/lang/Object;)Ljava/lang/Object;" -> {
                 int i = vaList.getIntArg(0);
-                return handleMSMethod(vm, i);
+                yield handleMSMethod(vm, i);
             }
-            case "java/lang/Thread->currentThread()Ljava/lang/Thread;":
-                return vm.resolveClass("java/lang/Thread").newObject(Thread.currentThread());
-        }
-        return super.callStaticObjectMethodV(vm, dvmClass, signature, vaList);
+            case "java/lang/Thread->currentThread()Ljava/lang/Thread;" ->
+                vm.resolveClass("java/lang/Thread").newObject(Thread.currentThread());
+            default -> super.callStaticObjectMethodV(vm, dvmClass, signature, vaList);
+        };
     }
 
     /**
      * 处理MS方法调用
      */
     private DvmObject<?> handleMSMethod(BaseVM vm, int methodId) {
-        switch (methodId) {
-            case 65539:
-                return new StringObject(vm, "/data/user/0/" + PACKAGE_NAME + "/files/.msdata");
-            case 33554433:
-            case 33554434:
-                return DvmBoolean.valueOf(vm, true);
-            case 16777232:
-                return vm.resolveClass("java.lang.Integer").newObject(68132);
-            case 16777233:
-                return new StringObject(vm, "6.8.1.32");
-            case 16777218: {
-                // 返回证书文件的字节数组
+        return switch (methodId) {
+            case 65539 -> new StringObject(vm, "/data/user/0/" + PACKAGE_NAME + "/files/.msdata");
+            case 33554433, 33554434 -> DvmBoolean.valueOf(vm, true);
+            case 16777232 -> vm.resolveClass("java.lang.Integer").newObject(68132);
+            case 16777233 -> new StringObject(vm, "6.8.1.32");
+            case 16777218 -> {
                 try {
                     if (tempMsCertFile != null && tempMsCertFile.exists()) {
                         byte[] fileData = Files.readAllBytes(tempMsCertFile.toPath());
                         if (loggable) {
                             log.debug("成功读取证书文件: {} bytes", fileData.length);
                         }
-                        return new ByteArray(vm, fileData);
+                        yield new ByteArray(vm, fileData);
                     } else {
                         log.warn("证书文件不存在: {}", tempMsCertFile);
-                        return null;
+                        yield null;
                     }
                 } catch (IOException e) {
                     log.error("读取证书文件失败", e);
-                    return null;
+                    yield null;
                 }
             }
-            case 268435470:
-                // 返回当前时间戳
-                return vm.resolveClass("java/lang/Long").newObject(System.currentTimeMillis());
-            default:
+            case 268435470 -> vm.resolveClass("java/lang/Long").newObject(System.currentTimeMillis());
+            default -> {
                 if (loggable) {
                     log.debug("未处理的MS方法ID: {}", methodId);
                 }
-                return null;
-        }
+                yield null;
+            }
+        };
     }
 
     @SuppressWarnings({"unchecked", "rawtypes"})
     @Override
     public DvmObject<?> callObjectMethodV(BaseVM vm, DvmObject<?> dvmObject, String signature, VaList vaList) {
-        switch (signature) {
-            case "java/lang/Thread->getStackTrace()[Ljava/lang/StackTraceElement;": {
+        return switch (signature) {
+            case "java/lang/Thread->getStackTrace()[Ljava/lang/StackTraceElement;" -> {
                 StackTraceElement[] elements = Thread.currentThread().getStackTrace();
                 @SuppressWarnings({"unchecked", "rawtypes"})
                 DvmObject<?>[] objs = (DvmObject<?>[]) new DvmObject[elements.length];
                 for (int i = 0; i < elements.length; i++) {
                     objs[i] = vm.resolveClass("java/lang/StackTraceElement").newObject(elements[i]);
                 }
-                return new ArrayObject(objs);
+                yield new ArrayObject(objs);
             }
-            case "java/lang/StackTraceElement->getClassName()Ljava/lang/String;": {
+            case "java/lang/StackTraceElement->getClassName()Ljava/lang/String;" -> {
                 StackTraceElement element = (StackTraceElement) dvmObject.getValue();
-                return new StringObject(vm, element.getClassName());
+                yield new StringObject(vm, element.getClassName());
             }
-            case "java/lang/StackTraceElement->getMethodName()Ljava/lang/String;": {
+            case "java/lang/StackTraceElement->getMethodName()Ljava/lang/String;" -> {
                 StackTraceElement element = (StackTraceElement) dvmObject.getValue();
-                return new StringObject(vm, element.getMethodName());
+                yield new StringObject(vm, element.getMethodName());
             }
-            case "java/lang/Thread->getBytes(Ljava/lang/String;)[B": {
+            case "java/lang/Thread->getBytes(Ljava/lang/String;)[B" -> {
                 String arg0 = (String) vaList.getObjectArg(0).getValue();
                 if (loggable) {
                     log.debug("java/lang/Thread->getBytes arg0: {}", arg0);
                 }
-                return new ByteArray(vm, arg0.getBytes(StandardCharsets.UTF_8));
+                yield new ByteArray(vm, arg0.getBytes(StandardCharsets.UTF_8));
             }
-        }
-        return super.callObjectMethodV(vm, dvmObject, signature, vaList);
+            default -> super.callObjectMethodV(vm, dvmObject, signature, vaList);
+        };
     }
 
     @Override
     public long callLongMethodV(BaseVM vm, DvmObject<?> dvmObject, String signature, VaList vaList) {
         if ("java/lang/Long->longValue()J".equals(signature)) {
             Object value = dvmObject.getValue();
-            if (value instanceof Long) {
-                return (Long) value;
+            if (value instanceof Long l) {
+                return l;
             }
         }
         return super.callLongMethodV(vm, dvmObject, signature, vaList);
@@ -429,24 +417,24 @@ public class IdleFQ extends AbstractJni implements IOResolver<AndroidFileIO> {
             log.debug("callVoidMethod: {}", signature);
         }
         switch (signature) {
-            case "com/bytedance/mobsec/metasec/ml/MS->a()V":
+            case "com/bytedance/mobsec/metasec/ml/MS->a()V" -> {
                 if (loggable) {
                     log.debug("Patched: com/bytedance/mobsec/metasec/ml/MS->a()V");
                 }
-                return;
+            }
+            default -> super.callVoidMethod(vm, dvmObject, signature, varArg);
         }
-        super.callVoidMethod(vm, dvmObject, signature, varArg);
     }
 
     @Override
     public int callIntMethodV(BaseVM vm, DvmObject<?> dvmObject, String signature, VaList vaList) {
         if ("java/lang/Integer->intValue()I".equals(signature)) {
             Object value = dvmObject.getValue();
-            if (value instanceof Integer) {
-                return (Integer) value;
+            if (value instanceof Integer i) {
+                return i;
             }
-            if (value instanceof String) {
-                return Integer.parseInt((String) value);
+            if (value instanceof String s) {
+                return Integer.parseInt(s);
             }
         }
         return super.callIntMethodV(vm, dvmObject, signature, vaList);
@@ -456,11 +444,11 @@ public class IdleFQ extends AbstractJni implements IOResolver<AndroidFileIO> {
     public boolean callBooleanMethodV(BaseVM vm, DvmObject<?> dvmObject, String signature, VaList vaList) {
         if ("java/lang/Boolean->booleanValue()Z".equals(signature)) {
             Object value = dvmObject.getValue();
-            if (value instanceof Boolean) {
-                return (Boolean) value;
+            if (value instanceof Boolean b) {
+                return b;
             }
-            if (value instanceof String) {
-                return Boolean.parseBoolean((String) value);
+            if (value instanceof String s) {
+                return Boolean.parseBoolean(s);
             }
         }
         return super.callBooleanMethodV(vm, dvmObject, signature, vaList);

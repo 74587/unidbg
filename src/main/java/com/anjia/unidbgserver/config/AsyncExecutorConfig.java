@@ -49,7 +49,14 @@ public class AsyncExecutorConfig {
      */
     @Bean(name = "fqPrefetchExecutor")
     @ConditionalOnMissingBean(name = "fqPrefetchExecutor")
-    public Executor fqPrefetchExecutor(FQDownloadProperties downloadProperties) {
+    public Executor fqPrefetchExecutor(
+        @Value("${spring.threads.virtual.enabled:true}") boolean useVirtualThreads,
+        FQDownloadProperties downloadProperties
+    ) {
+        if (useVirtualThreads) {
+            return Executors.newVirtualThreadPerTaskExecutor();
+        }
+
         int coreSize = Math.max(1, downloadProperties.getPrefetchExecutorCoreSize());
         int maxSize = Math.max(coreSize, downloadProperties.getPrefetchExecutorMaxSize());
         int queueCapacity = Math.max(0, downloadProperties.getPrefetchExecutorQueueCapacity());

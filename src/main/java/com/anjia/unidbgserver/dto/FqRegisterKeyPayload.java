@@ -9,11 +9,4 @@ public record FqRegisterKeyPayload(
     @JsonProperty("content") String content,
     @JsonProperty("keyver") long keyver
 ) {
-    public String getContent() {
-        return content;
-    }
-
-    public long getKeyver() {
-        return keyver;
-    }
 }

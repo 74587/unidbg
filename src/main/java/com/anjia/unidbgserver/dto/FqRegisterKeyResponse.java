@@ -8,15 +8,4 @@ public record FqRegisterKeyResponse(
     String message,
     FqRegisterKeyPayloadResponse data
 ) {
-    public long getCode() {
-        return code;
-    }
-
-    public String getMessage() {
-        return message;
-    }
-
-    public FqRegisterKeyPayloadResponse getData() {
-        return data;
-    }
 }

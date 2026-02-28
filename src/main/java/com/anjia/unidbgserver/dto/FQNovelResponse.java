@@ -29,21 +29,4 @@ public record FQNovelResponse<T>(
     public boolean isSuccess() {
         return code != null && code == SUCCESS_CODE;
     }
-
-    // 兼容现有调用风格（record 原生访问器为 code()/message()/data()/serverTime()）
-    public Integer getCode() {
-        return code;
-    }
-
-    public String getMessage() {
-        return message;
-    }
-
-    public T getData() {
-        return data;
-    }
-
-    public Long getServerTime() {
-        return serverTime;
-    }
 }

@@ -10,7 +10,6 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.util.Collections;
 import java.util.HashMap;
 import java.util.Locale;
 import java.util.Map;
@@ -74,7 +73,7 @@ public class FQEncryptService {
     public Map<String, String> generateSignatureHeaders(String url, String headers) {
         try {
             if (ProcessLifecycle.isShuttingDown()) {
-                return Collections.emptyMap();
+                return Map.of();
             }
 
             if (log.isDebugEnabled()) {
@@ -89,7 +88,7 @@ public class FQEncryptService {
 
             if (!Texts.hasText(signatureResult)) {
                 log.error("签名生成失败，返回结果为空");
-                return Collections.emptyMap();
+                return Map.of();
             }
 
             // 解析返回的签名结果
@@ -104,7 +103,7 @@ public class FQEncryptService {
 
         } catch (Exception e) {
             log.error("生成FQ签名失败", e);
-            return Collections.emptyMap();
+            return Map.of();
         }
     }
 
@@ -146,19 +145,19 @@ public class FQEncryptService {
      */
     private Map<String, String> parseSignatureResult(String signatureResult) {
         if (signatureResult == null) {
-            return Collections.emptyMap();
+            return Map.of();
         }
 
         String normalized = Texts.trimToEmpty(normalizeLineBreaks(signatureResult));
         if (normalized.isEmpty()) {
-            return Collections.emptyMap();
+            return Map.of();
         }
 
         // 1) JSON 格式：{"X-Argus":"...","X-Khronos":"..."}
         if (normalized.startsWith("{") && normalized.endsWith("}")) {
             try {
                 Map<String, String> jsonMap = objectMapper.readValue(normalized, new TypeReference<Map<String, String>>() {});
-                return jsonMap != null ? new HashMap<>(jsonMap) : Collections.emptyMap();
+                return jsonMap != null ? new HashMap<>(jsonMap) : Map.of();
             } catch (Exception ignored) {
                 // 继续按行格式解析
             }

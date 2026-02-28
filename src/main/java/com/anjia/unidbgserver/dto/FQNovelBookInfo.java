@@ -32,44 +32,4 @@ public record FQNovelBookInfo(
             status
         );
     }
-
-    public String getBookId() {
-        return bookId;
-    }
-
-    public String getBookName() {
-        return bookName;
-    }
-
-    public String getAuthor() {
-        return author;
-    }
-
-    public String getDescription() {
-        return description;
-    }
-
-    public String getCoverUrl() {
-        return coverUrl;
-    }
-
-    public Integer getTotalChapters() {
-        return totalChapters;
-    }
-
-    public Long getWordNumber() {
-        return wordNumber;
-    }
-
-    public String getLastChapterTitle() {
-        return lastChapterTitle;
-    }
-
-    public String getCategory() {
-        return category;
-    }
-
-    public Integer getStatus() {
-        return status;
-    }
 }

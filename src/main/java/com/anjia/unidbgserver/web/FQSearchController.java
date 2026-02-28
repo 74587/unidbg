@@ -5,6 +5,7 @@ import com.anjia.unidbgserver.dto.FQDirectoryResponse;
 import com.anjia.unidbgserver.dto.FQNovelResponse;
 import com.anjia.unidbgserver.dto.FQSearchRequest;
 import com.anjia.unidbgserver.dto.FQSearchResponseSimple;
+import com.anjia.unidbgserver.service.FQDirectoryService;
 import com.anjia.unidbgserver.service.FQSearchService;
 import com.anjia.unidbgserver.utils.Texts;
 import org.slf4j.Logger;
@@ -33,9 +34,11 @@ public class FQSearchController {
     private static final int MAX_TAB_TYPE = 20;
 
     private final FQSearchService fqSearchService;
+    private final FQDirectoryService fqDirectoryService;
 
-    public FQSearchController(FQSearchService fqSearchService) {
+    public FQSearchController(FQSearchService fqSearchService, FQDirectoryService fqDirectoryService) {
         this.fqSearchService = fqSearchService;
+        this.fqDirectoryService = fqDirectoryService;
     }
 
     /**
@@ -99,13 +102,13 @@ public class FQSearchController {
                 if (response == null) {
                     return FQNovelResponse.<FQSearchResponseSimple>error("搜索失败: 空响应");
                 }
-                if (response.getCode() == null) {
+                if (response.code() == null) {
                     return FQNovelResponse.<FQSearchResponseSimple>error("搜索失败: 响应码为空");
                 }
-                if (response.getCode() != 0) {
-                    return FQNovelResponse.<FQSearchResponseSimple>error(response.getCode(), response.getMessage());
+                if (response.code() != 0) {
+                    return FQNovelResponse.<FQSearchResponseSimple>error(response.code(), response.message());
                 }
-                FQSearchResponseSimple simple = FQSearchResponseSimple.fromFull(response.getData());
+                FQSearchResponseSimple simple = FQSearchResponseSimple.fromFull(response.data());
                 return FQNovelResponse.success(simple);
             });
     }
@@ -135,7 +138,7 @@ public class FQSearchController {
         directoryRequest.setBookId(normalizedBookId);
         directoryRequest.setMinimalResponse(true);
 
-        return fqSearchService.getBookDirectory(directoryRequest);
+        return fqDirectoryService.getBookDirectory(directoryRequest);
     }
 
     private static <T> CompletableFuture<FQNovelResponse<T>> badRequest(String message) {

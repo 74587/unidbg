@@ -134,17 +134,17 @@ public class FQRegisterKeyService {
             throw new IllegalStateException("刷新registerkey失败，响应为空");
         }
 
-        if (response.getCode() != 0) {
-            throw new IllegalStateException("刷新registerkey失败，上游返回 code=" + response.getCode()
-                + ", message=" + response.getMessage());
+        if (response.code() != 0) {
+            throw new IllegalStateException("刷新registerkey失败，上游返回 code=" + response.code()
+                + ", message=" + response.message());
         }
 
-        FqRegisterKeyPayloadResponse data = response.getData();
-        if (data == null || !Texts.hasText(data.getKey())) {
+        FqRegisterKeyPayloadResponse data = response.data();
+        if (data == null || !Texts.hasText(data.key())) {
             throw new IllegalStateException("刷新registerkey失败，响应缺少有效key");
         }
 
-        long keyver = data.getKeyver();
+        long keyver = data.keyver();
         if (keyver <= 0) {
             throw new IllegalStateException("刷新registerkey失败，响应缺少有效keyver");
         }
@@ -176,7 +176,7 @@ public class FQRegisterKeyService {
 
         log.debug("发送registerkey请求到: {}", fullUrl);
         log.debug("请求时间戳: {}", currentTime);
-        log.debug("请求载荷: content={}, keyver={}", payload.getContent(), payload.getKeyver());
+        log.debug("请求载荷: content={}, keyver={}", payload.content(), payload.keyver());
 
         UpstreamSignedRequestService.UpstreamJsonResult upstream =
             upstreamSignedRequestService.executeSignedJsonPost(fullUrl, headers, payload);
@@ -184,12 +184,12 @@ public class FQRegisterKeyService {
             throw new IllegalStateException("签名生成失败，无法请求 registerkey");
         }
 
-        String responseBody = upstream.getResponseBody();
+        String responseBody = upstream.responseBody();
         if (log.isDebugEnabled()) {
             log.debug("registerkey原始响应: {}", Texts.truncate(Texts.nullToEmpty(responseBody), 800));
         }
 
-        JsonNode root = upstream.getJsonBody();
+        JsonNode root = upstream.jsonBody();
         FqRegisterKeyResponse parsed = objectMapper.treeToValue(root, FqRegisterKeyResponse.class);
 
         if (parsed == null) {
@@ -197,7 +197,7 @@ public class FQRegisterKeyService {
         }
 
         log.debug("registerkey请求响应: code={}, message={}, keyver={}",
-            parsed.getCode(), parsed.getMessage(),
+            parsed.code(), parsed.message(),
             Objects.requireNonNullElse(extractKeyver(parsed), "null"));
 
         return parsed;
@@ -211,10 +211,10 @@ public class FQRegisterKeyService {
      */
     public String getDecryptionKey(Long requiredKeyver) throws Exception {
         FqRegisterKeyResponse registerKeyResponse = getRegisterKey(requiredKeyver);
-        if (registerKeyResponse.getData() == null) {
+        if (registerKeyResponse.data() == null) {
             throw new IllegalStateException("registerkey 响应 data 为空");
         }
-        return FqCrypto.getRealKey(registerKeyResponse.getData().getKey());
+        return FqCrypto.getRealKey(registerKeyResponse.data().key());
     }
 
     private FqRegisterKeyPayload buildRegisterKeyPayload(FqVariable var) throws Exception {
@@ -269,7 +269,7 @@ public class FQRegisterKeyService {
     }
 
     private boolean isCurrentRegisterKeyValid() {
-        if (currentRegisterKey == null || currentRegisterKey.getData() == null) {
+        if (currentRegisterKey == null || currentRegisterKey.data() == null) {
             return false;
         }
         if (isExpired(currentRegisterKeyExpiresAtMs)) {
@@ -310,10 +310,10 @@ public class FQRegisterKeyService {
     }
 
     private static Long extractKeyver(FqRegisterKeyResponse response) {
-        if (response == null || response.getData() == null) {
+        if (response == null || response.data() == null) {
             return null;
         }
-        return response.getData().getKeyver();
+        return response.data().keyver();
     }
 
     private static boolean hasRegisterKey(FqRegisterKeyResponse response) {

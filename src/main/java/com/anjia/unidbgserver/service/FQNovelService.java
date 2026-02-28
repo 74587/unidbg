@@ -3,6 +3,7 @@ package com.anjia.unidbgserver.service;
 import com.anjia.unidbgserver.config.FQApiProperties;
 import com.anjia.unidbgserver.config.FQDownloadProperties;
 import com.anjia.unidbgserver.constants.FQConstants;
+import com.anjia.unidbgserver.utils.ThrottledLogger;
 import com.anjia.unidbgserver.dto.FQDirectoryRequest;
 import com.anjia.unidbgserver.dto.FQDirectoryResponse;
 import com.anjia.unidbgserver.dto.FQNovelBookInfo;
@@ -24,7 +25,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executor;
 
 @Service
@@ -34,11 +34,10 @@ public class FQNovelService {
 
     private static final String DIRECTORY_FAILURE_PREFIX = "获取书籍目录失败: ";
     private static final String CHAPTER_FETCH_FAILURE_PREFIX = "获取章节内容失败: ";
-    private static final long HIGH_FREQ_LOG_COOLDOWN_MS = 60_000L;
 
     private final FQApiUtils fqApiUtils;
     private final FQApiProperties fqApiProperties;
-    private final FQSearchService fqSearchService;
+    private final FQDirectoryService fqDirectoryService;
     private final FQDownloadProperties downloadProperties;
     private final FQDeviceRotationService deviceRotationService;
     private final AutoRestartService autoRestartService;
@@ -46,12 +45,12 @@ public class FQNovelService {
     private final ObjectMapper objectMapper;
     @Qualifier("applicationTaskExecutor")
     private final Executor taskExecutor;
-    private final ConcurrentHashMap<String, Long> highFreqLogTimestamps = new ConcurrentHashMap<>();
+    private final ThrottledLogger throttledLog = new ThrottledLogger(60_000L);
 
     public FQNovelService(
         FQApiUtils fqApiUtils,
         FQApiProperties fqApiProperties,
-        FQSearchService fqSearchService,
+        FQDirectoryService fqDirectoryService,
         FQDownloadProperties downloadProperties,
         FQDeviceRotationService deviceRotationService,
         AutoRestartService autoRestartService,
@@ -61,7 +60,7 @@ public class FQNovelService {
     ) {
         this.fqApiUtils = fqApiUtils;
         this.fqApiProperties = fqApiProperties;
-        this.fqSearchService = fqSearchService;
+        this.fqDirectoryService = fqDirectoryService;
         this.downloadProperties = downloadProperties;
         this.deviceRotationService = deviceRotationService;
         this.autoRestartService = autoRestartService;
@@ -109,7 +108,7 @@ public class FQNovelService {
             throw new IllegalStateException("签名生成失败");
         }
 
-        String responseBody = upstream.getResponseBody();
+        String responseBody = upstream.responseBody();
         String trimmedBody = Texts.trimToNull(responseBody);
         if (trimmedBody == null) {
             throw new RuntimeException("Empty upstream response");
@@ -125,15 +124,15 @@ public class FQNovelService {
         if (batchResponse == null) {
             throw new RuntimeException("Upstream parse failed");
         }
-        if (batchResponse.getCode() != 0) {
-            String msg = Texts.trimToEmpty(batchResponse.getMessage());
+        if (batchResponse.code() != 0) {
+            String msg = Texts.trimToEmpty(batchResponse.message());
             String raw = Texts.trimToEmpty(responseBody);
-            if (batchResponse.getCode() == 110L
+            if (batchResponse.code() == 110L
                 || UpstreamSignedRequestService.containsIllegalAccess(msg)
                 || UpstreamSignedRequestService.containsIllegalAccess(raw)) {
                 throw new IllegalStateException(UpstreamSignedRequestService.REASON_ILLEGAL_ACCESS);
             }
-            return FQNovelResponse.error((int) batchResponse.getCode(), msg);
+            return FQNovelResponse.error((int) batchResponse.code(), msg);
         }
 
         autoRestartService.recordSuccess();
@@ -160,7 +159,7 @@ public class FQNovelService {
             if (Texts.hasText(userMessage)) {
                 return FQNovelResponse.error(userMessage);
             }
-            if (shouldLogHighFreq("batch.failure")) {
+            if (throttledLog.shouldLog("batch.failure")) {
                 log.error("获取章节内容失败 - itemIds: {}", itemIds, e);
             }
             return FQNovelResponse.error(CHAPTER_FETCH_FAILURE_PREFIX + message);
@@ -210,30 +209,22 @@ public class FQNovelService {
     }
 
     private static boolean isSuccessWithData(FQNovelResponse<?> response) {
-        return response != null && response.getCode() != null && response.getCode() == 0 && response.getData() != null;
+        return RequestCacheHelper.isResponseSuccessWithData(response);
     }
 
     private static String directoryFailureMessage(FQNovelResponse<?> response) {
         if (response == null) {
             return DIRECTORY_FAILURE_PREFIX + "空响应";
         }
-        Integer code = response.getCode();
-        String message = Texts.defaultIfBlank(response.getMessage(), "目录接口未返回有效数据");
+        Integer code = response.code();
+        String message = Texts.defaultIfBlank(response.message(), "目录接口未返回有效数据");
         String normalizedMessage = "success".equalsIgnoreCase(message) ? "目录接口未返回有效数据" : message;
         return code != null && code != 0
             ? DIRECTORY_FAILURE_PREFIX + "code=" + code + ", message=" + normalizedMessage
             : DIRECTORY_FAILURE_PREFIX + normalizedMessage;
     }
 
-    private boolean shouldLogHighFreq(String key) {
-        long now = System.currentTimeMillis();
-        long last = highFreqLogTimestamps.getOrDefault(key, 0L);
-        if (now - last < HIGH_FREQ_LOG_COOLDOWN_MS) {
-            return false;
-        }
-        highFreqLogTimestamps.put(key, now);
-        return true;
-    }
+
 
     public CompletableFuture<FQNovelResponse<FQNovelBookInfo>> getBookInfo(String bookId) {
         final String trimmedBookId = Texts.trimToNull(bookId);
@@ -247,12 +238,12 @@ public class FQNovelService {
         directoryRequest.setNeedVersion(true);
         directoryRequest.setMinimalResponse(false);
 
-        return fqSearchService.getBookDirectory(directoryRequest)
+        return fqDirectoryService.getBookDirectory(directoryRequest)
             .thenApply(directoryResponse -> {
                 if (!isSuccessWithData(directoryResponse)) {
                     return FQNovelResponse.<FQNovelBookInfo>error(directoryFailureMessage(directoryResponse));
                 }
-                return buildBookInfoFromDirectoryData(directoryResponse.getData(), trimmedBookId);
+                return buildBookInfoFromDirectoryData(directoryResponse.data(), trimmedBookId);
             })
             .exceptionally(e -> handleBookInfoFailure(trimmedBookId, e));
     }

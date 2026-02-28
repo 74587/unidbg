@@ -190,13 +190,13 @@ public class FQDeviceRotationService {
                 return false;
             }
 
-            String body = upstream.getResponseBody();
+            String body = upstream.responseBody();
             String trimmedBody = Texts.trimToNull(body);
             if (trimmedBody == null || trimmedBody.startsWith("<")) {
                 return false;
             }
 
-            JsonNode root = upstream.getJsonBody();
+            JsonNode root = upstream.jsonBody();
             int code = root.path("code").asInt(-1);
             if (code != 0) {
                 return false;

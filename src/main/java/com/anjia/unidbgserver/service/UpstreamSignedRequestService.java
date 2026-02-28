@@ -4,6 +4,7 @@ import com.anjia.unidbgserver.utils.GzipUtils;
 import com.anjia.unidbgserver.utils.Texts;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.slf4j.Logger;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
@@ -12,7 +13,6 @@ import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestTemplate;
 
 import java.net.URI;
-import java.util.Collections;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
@@ -55,6 +55,50 @@ public class UpstreamSignedRequestService {
         return toJsonResult(executeSignedRawGet(fullUrl, headers));
     }
 
+    /**
+     * 执行签名 GET 并在签名失败时记录日志。
+     * 从 FQSearchService / FQDirectoryService 中提取共用。
+     */
+    public UpstreamJsonResult executeSignedJsonGetOrLogFailure(
+        String fullUrl,
+        Map<String, String> headers,
+        String failureScene,
+        Logger callerLog
+    ) throws Exception {
+        UpstreamJsonResult upstream = executeSignedJsonGet(fullUrl, headers);
+        if (upstream == null) {
+            callerLog.error("签名生成失败，终止{} - url: {}", failureScene, fullUrl);
+        }
+        return upstream;
+    }
+
+    /**
+     * 提取上游非零响应码，0 视为成功，返回 null。
+     */
+    public static Integer nonZeroUpstreamCode(JsonNode rootNode) {
+        JsonNode codeNode = rootNode != null ? rootNode.get("code") : null;
+        int code = codeNode != null ? codeNode.asInt(0) : 0;
+        return code != 0 ? code : null;
+    }
+
+    /**
+     * 提取上游响应 message，为空时返回默认值。
+     */
+    public static String upstreamMessageOrDefault(JsonNode rootNode, String defaultValue) {
+        return rootNode != null && rootNode.has("message")
+            ? Texts.defaultIfBlank(rootNode.get("message").asText(), defaultValue)
+            : defaultValue;
+    }
+
+    /**
+     * DEBUG 级别记录上游原始响应体（截断至 800 字符）。
+     */
+    public static void logUpstreamBodyDebug(Logger callerLog, String prefix, String responseBody) {
+        if (callerLog.isDebugEnabled()) {
+            callerLog.debug("{}: {}", prefix, Texts.truncate(Texts.nullToEmpty(responseBody), 800));
+        }
+    }
+
     public UpstreamJsonResult executeSignedJsonPost(String fullUrl, Map<String, String> headers, Object body) throws Exception {
         return toJsonResult(executeSignedRawPost(fullUrl, headers, body));
     }
@@ -86,7 +130,7 @@ public class UpstreamSignedRequestService {
         Object body,
         boolean rateLimit
     ) throws Exception {
-        Map<String, String> requestHeaders = Objects.requireNonNullElse(headers, Collections.emptyMap());
+        Map<String, String> requestHeaders = Objects.requireNonNullElse(headers, Map.of());
         Map<String, String> signedHeaders = fqEncryptServiceWorker.generateSignatureHeadersSync(fullUrl, requestHeaders);
         if (signedHeaders == null || signedHeaders.isEmpty()) {
             return null;
@@ -154,45 +198,7 @@ public class UpstreamSignedRequestService {
             || normalized.contains("permission");
     }
 
-    public static final class UpstreamRawResult {
-        private final ResponseEntity<byte[]> response;
-        private final String responseBody;
+    public record UpstreamRawResult(ResponseEntity<byte[]> response, String responseBody) {}
 
-        public UpstreamRawResult(ResponseEntity<byte[]> response, String responseBody) {
-            this.response = response;
-            this.responseBody = responseBody;
-        }
-
-        public ResponseEntity<byte[]> getResponse() {
-            return response;
-        }
-
-        public String getResponseBody() {
-            return responseBody;
-        }
-    }
-
-    public static final class UpstreamJsonResult {
-        private final ResponseEntity<byte[]> response;
-        private final String responseBody;
-        private final JsonNode jsonBody;
-
-        public UpstreamJsonResult(ResponseEntity<byte[]> response, String responseBody, JsonNode jsonBody) {
-            this.response = response;
-            this.responseBody = responseBody;
-            this.jsonBody = jsonBody;
-        }
-
-        public JsonNode getJsonBody() {
-            return jsonBody;
-        }
-
-        public ResponseEntity<byte[]> getResponse() {
-            return response;
-        }
-
-        public String getResponseBody() {
-            return responseBody;
-        }
-    }
+    public record UpstreamJsonResult(ResponseEntity<byte[]> response, String responseBody, JsonNode jsonBody) {}
 }

@@ -4,11 +4,9 @@ import com.anjia.unidbgserver.config.FQDownloadProperties;
 import com.anjia.unidbgserver.dto.FQDirectoryRequest;
 import com.anjia.unidbgserver.dto.FQDirectoryResponse;
 import com.anjia.unidbgserver.dto.FQNovelChapterInfo;
-import com.anjia.unidbgserver.dto.FQNovelData;
 import com.anjia.unidbgserver.dto.FQNovelRequest;
 import com.anjia.unidbgserver.dto.FQNovelResponse;
 import com.anjia.unidbgserver.dto.ItemContent;
-import com.anjia.unidbgserver.utils.HtmlTextExtractor;
 import com.anjia.unidbgserver.utils.LocalCacheFactory;
 import com.anjia.unidbgserver.utils.Texts;
 import com.github.benmanes.caffeine.cache.Cache;
@@ -19,7 +17,6 @@ import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Service;
 
 import jakarta.annotation.PostConstruct;
-import javax.crypto.BadPaddingException;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
@@ -44,16 +41,9 @@ public class FQChapterPrefetchService {
     private static final int MIN_DIRECTORY_CACHE_MAX_ENTRIES = 64;
     private static final int MAX_CHAPTER_PREFETCH_SIZE = 30;
 
-    // 修复问题 #7：定义魔法数字为常量
-    /**
-     * Base64 编码的最小有效长度（16 bytes IV + 至少1 byte数据 = 24 chars）
-     */
-    private static final int MIN_BASE64_ENCRYPTED_LENGTH = 24;
     private static final String EX_PREFIX_ILLEGAL_ARGUMENT = "java.lang.IllegalArgumentException:";
     private static final String EX_PREFIX_ILLEGAL_STATE = "java.lang.IllegalStateException:";
     private static final String EX_PREFIX_RUNTIME = "java.lang.RuntimeException:";
-    private static final String DEFAULT_CHAPTER_TITLE = "章节标题";
-    private static final String DEFAULT_AUTHOR_NAME = "未知作者";
     private static final String[] FAILURE_REASON_PREFIXES = {
         EX_PREFIX_ILLEGAL_ARGUMENT,
         EX_PREFIX_ILLEGAL_STATE,
@@ -62,8 +52,8 @@ public class FQChapterPrefetchService {
     
     private final FQDownloadProperties downloadProperties;
     private final FQNovelService fqNovelService;
-    private final FQSearchService fqSearchService;
-    private final FQRegisterKeyService registerKeyService;
+    private final FQDirectoryService fqDirectoryService;
+    private final ChapterContentBuilder chapterContentBuilder;
     private final ObjectProvider<PgChapterCacheService> pgChapterCacheServiceProvider;
     @Qualifier("fqPrefetchExecutor")
     private final Executor prefetchExecutor;
@@ -77,15 +67,15 @@ public class FQChapterPrefetchService {
     public FQChapterPrefetchService(
         FQDownloadProperties downloadProperties,
         FQNovelService fqNovelService,
-        FQSearchService fqSearchService,
-        FQRegisterKeyService registerKeyService,
+        FQDirectoryService fqDirectoryService,
+        ChapterContentBuilder chapterContentBuilder,
         ObjectProvider<PgChapterCacheService> pgChapterCacheServiceProvider,
         @Qualifier("fqPrefetchExecutor") Executor prefetchExecutor
     ) {
         this.downloadProperties = downloadProperties;
         this.fqNovelService = fqNovelService;
-        this.fqSearchService = fqSearchService;
-        this.registerKeyService = registerKeyService;
+        this.fqDirectoryService = fqDirectoryService;
+        this.chapterContentBuilder = chapterContentBuilder;
         this.pgChapterCacheServiceProvider = pgChapterCacheServiceProvider;
         this.prefetchExecutor = prefetchExecutor;
     }
@@ -120,14 +110,12 @@ public class FQChapterPrefetchService {
 
         FQNovelChapterInfo cached = getCachedChapter(bookId, chapterId);
         if (cached != null) {
-            // 命中缓存直接返回，不走上游请求，也不会触发上游限流。
             return CompletableFuture.completedFuture(FQNovelResponse.success(cached));
         }
 
         // 主缓存：PostgreSQL（命中后回填本地 Caffeine）
         FQNovelChapterInfo persisted = getPersistedChapter(bookId, chapterId);
         if (persisted != null) {
-            // 命中 PostgreSQL 主缓存直接返回，不走上游请求，也不会触发上游限流。
             return CompletableFuture.completedFuture(FQNovelResponse.success(persisted));
         }
 
@@ -147,18 +135,18 @@ public class FQChapterPrefetchService {
 
                 // 兜底：仍未命中则只取单章
                 return fqNovelService.batchFull(chapterId, bookId, true).thenApply(single -> {
-                    if (single.getCode() != 0 || single.getData() == null) {
-                        return FQNovelResponse.<FQNovelChapterInfo>error("获取章节内容失败: " + single.getMessage());
+                    if (single.code() != 0 || single.data() == null) {
+                        return FQNovelResponse.<FQNovelChapterInfo>error("获取章节内容失败: " + single.message());
                     }
 
-                    Map<String, ItemContent> dataMap = single.getData().getData();
+                    Map<String, ItemContent> dataMap = single.data().data();
                     if (dataMap == null || dataMap.isEmpty()) {
                         return FQNovelResponse.<FQNovelChapterInfo>error("未找到章节数据");
                     }
 
                     ItemContent itemContent = dataMap.getOrDefault(chapterId, dataMap.values().iterator().next());
                     try {
-                        FQNovelChapterInfo info = buildChapterInfo(bookId, chapterId, itemContent);
+                        FQNovelChapterInfo info = chapterContentBuilder.buildChapterInfo(bookId, chapterId, itemContent);
                         cacheChapter(bookId, chapterId, info);
                         return FQNovelResponse.success(info);
                     } catch (Exception e) {
@@ -231,7 +219,7 @@ public class FQChapterPrefetchService {
 
     private String computePrefetchKeyFast(String bookId, String chapterId) {
         DirectoryIndex directoryIndex = directoryCache.getIfPresent(bookId);
-        if (directoryIndex == null || directoryIndex.getItemIds().isEmpty()) {
+        if (directoryIndex == null || directoryIndex.itemIds().isEmpty()) {
             return singlePrefetchKey(bookId, chapterId);
         }
         int index = directoryIndex.indexOf(chapterId);
@@ -266,7 +254,7 @@ public class FQChapterPrefetchService {
     private CompletableFuture<Void> doPrefetchAndCacheAsync(String bookId, String chapterId) {
         Executor exec = resolvePrefetchExecutor();
         return getDirectoryIndexAsync(bookId).thenCompose(directoryIndex -> {
-            List<String> itemIds = directoryIndex != null ? directoryIndex.getItemIds() : Collections.emptyList();
+            List<String> itemIds = directoryIndex != null ? directoryIndex.itemIds() : List.of();
             if (itemIds.isEmpty()) {
                 return CompletableFuture.completedFuture(null);
             }
@@ -277,18 +265,18 @@ public class FQChapterPrefetchService {
             // 拉取并解密（处理放在 prefetchExecutor 上，避免占用业务线程池）
             String joined = String.join(",", batchIds);
             return fqNovelService.batchFull(joined, bookId, true).thenAcceptAsync(batch -> {
-                if (batch == null || batch.getCode() != 0 || batch.getData() == null || batch.getData().getData() == null) {
+                if (batch == null || batch.code() != 0 || batch.data() == null || batch.data().data() == null) {
                     return;
                 }
 
-                Map<String, ItemContent> dataMap = batch.getData().getData();
+                Map<String, ItemContent> dataMap = batch.data().data();
                 for (String itemId : batchIds) {
                     ItemContent content = dataMap.get(itemId);
                     if (content == null) {
                         continue;
                     }
                     try {
-                        FQNovelChapterInfo info = buildChapterInfo(bookId, itemId, content);
+                        FQNovelChapterInfo info = chapterContentBuilder.buildChapterInfo(bookId, itemId, content);
                         cacheChapter(bookId, itemId, info);
                     } catch (Exception e) {
                         cacheChapterFailure(bookId, itemId, e.getMessage());
@@ -321,15 +309,15 @@ public class FQChapterPrefetchService {
             directoryRequest.setBookId(bookId);
             directoryRequest.setMinimalResponse(true);
 
-            fqSearchService.getBookDirectory(directoryRequest)
+            fqDirectoryService.getBookDirectory(directoryRequest)
                 .handle((resp, ex) -> {
-                    if (ex != null || resp == null || resp.getCode() != 0 || resp.getData() == null || resp.getData().getItemDataList() == null) {
+                    if (ex != null || resp == null || resp.code() != 0 || resp.data() == null || resp.data().getItemDataList() == null) {
                         return DirectoryIndex.empty();
                     }
 
                     List<String> itemIds = new ArrayList<>();
                     Map<String, Integer> chapterIndex = new HashMap<>();
-                    for (FQDirectoryResponse.ItemData item : resp.getData().getItemDataList()) {
+                    for (FQDirectoryResponse.ItemData item : resp.data().getItemDataList()) {
                         if (item != null && Texts.hasText(item.getItemId())) {
                             String itemId = Texts.trimToEmpty(item.getItemId());
                             chapterIndex.put(itemId, itemIds.size());
@@ -359,29 +347,17 @@ public class FQChapterPrefetchService {
         inflightDirectory.remove(bookId, inflightFuture);
     }
 
-    private static final class DirectoryIndex {
-        private static final DirectoryIndex EMPTY = new DirectoryIndex(Collections.emptyList(), Collections.emptyMap());
-
-        private final List<String> itemIds;
-        private final Map<String, Integer> chapterIndex;
-
-        private DirectoryIndex(List<String> itemIds, Map<String, Integer> chapterIndex) {
-            this.itemIds = itemIds;
-            this.chapterIndex = chapterIndex;
-        }
+    private record DirectoryIndex(List<String> itemIds, Map<String, Integer> chapterIndex) {
+        private static final DirectoryIndex EMPTY = new DirectoryIndex(List.of(), Map.of());
 
         private static DirectoryIndex of(List<String> itemIds, Map<String, Integer> chapterIndex) {
-            List<String> safeIds = itemIds == null ? Collections.emptyList() : Collections.unmodifiableList(new ArrayList<>(itemIds));
-            Map<String, Integer> safeIndex = chapterIndex == null ? Collections.emptyMap() : Collections.unmodifiableMap(new HashMap<>(chapterIndex));
+            List<String> safeIds = itemIds == null ? List.of() : List.copyOf(itemIds);
+            Map<String, Integer> safeIndex = chapterIndex == null ? Map.of() : Map.copyOf(chapterIndex);
             return new DirectoryIndex(safeIds, safeIndex);
         }
 
         private static DirectoryIndex empty() {
             return EMPTY;
-        }
-
-        private List<String> getItemIds() {
-            return itemIds;
         }
 
         private int indexOf(String chapterId) {
@@ -430,94 +406,6 @@ public class FQChapterPrefetchService {
         PgChapterCacheService pgCacheService = pgChapterCacheServiceProvider.getIfAvailable();
         if (pgCacheService != null) {
             pgCacheService.saveChapterIfValid(bookId, chapterId, chapterInfo);
-        }
-    }
-
-    private FQNovelChapterInfo buildChapterInfo(String bookId, String chapterId, ItemContent itemContent) throws Exception {
-        if (itemContent == null) {
-            throw new IllegalArgumentException("章节内容为空");
-        }
-        if (itemContent.getCode() != 0) {
-            throw new IllegalStateException("upstream item code=" + itemContent.getCode());
-        }
-        String encrypted = Texts.trimToNull(itemContent.getContent());
-        if (encrypted == null) {
-            throw new IllegalArgumentException("章节内容为空/过短");
-        }
-        // Base64(16 bytes iv + ...) 的最短长度约为 24（含 padding）；过短通常是上游返回了异常内容
-        if (encrypted.length() < MIN_BASE64_ENCRYPTED_LENGTH) {
-            throw new IllegalArgumentException("章节内容为空/过短");
-        }
-
-        Long contentKeyver = itemContent.getKeyVersion();
-        String decryptedContent = decryptChapterContentWithRetry(bookId, chapterId, encrypted, contentKeyver);
-        return buildChapterInfoFromContent(
-            bookId,
-            chapterId,
-            itemContent,
-            decryptedContent,
-            downloadProperties.isChapterIncludeRawContent()
-        );
-    }
-
-    private static FQNovelChapterInfo buildChapterInfoFromContent(
-        String bookId,
-        String chapterId,
-        ItemContent itemContent,
-        String decryptedContent,
-        boolean includeRawContent
-    ) {
-        String txtContent = HtmlTextExtractor.extractText(decryptedContent);
-
-        FQNovelChapterInfo chapterInfo = new FQNovelChapterInfo();
-        chapterInfo.setChapterId(chapterId);
-        chapterInfo.setBookId(bookId);
-        if (includeRawContent) {
-            chapterInfo.setRawContent(decryptedContent);
-        }
-        chapterInfo.setTxtContent(txtContent);
-        chapterInfo.setTitle(resolveChapterTitle(itemContent, decryptedContent));
-        chapterInfo.setAuthorName(resolveAuthorName(itemContent));
-        chapterInfo.setWordCount(txtContent.length());
-        chapterInfo.setUpdateTime(System.currentTimeMillis());
-
-        return chapterInfo;
-    }
-
-    private static String resolveChapterTitle(ItemContent itemContent, String decryptedContent) {
-        String title = itemContent == null ? null : Texts.trimToNull(itemContent.getTitle());
-        if (title != null) {
-            return title;
-        }
-        String extractedTitle = HtmlTextExtractor.extractTitle(decryptedContent);
-        return extractedTitle != null ? extractedTitle : DEFAULT_CHAPTER_TITLE;
-    }
-
-    private static String resolveAuthorName(ItemContent itemContent) {
-        if (itemContent == null) {
-            return DEFAULT_AUTHOR_NAME;
-        }
-        FQNovelData novelData = itemContent.getNovelData();
-        if (novelData == null) {
-            return DEFAULT_AUTHOR_NAME;
-        }
-        return Texts.defaultIfBlank(novelData.getAuthor(), DEFAULT_AUTHOR_NAME);
-    }
-
-    /**
-     * BadPadding 通常意味着 key 不匹配。这里做一次受控重试：刷新 registerkey 后仅再尝试一次。
-     */
-    private String decryptChapterContentWithRetry(String bookId, String chapterId, String encrypted, Long contentKeyver) throws Exception {
-        String key = registerKeyService.getDecryptionKey(contentKeyver);
-        try {
-            return FqCrypto.decryptAndDecompressContent(encrypted, key);
-        } catch (BadPaddingException first) {
-            log.warn("章节解密失败(BadPadding)，刷新registerkey后重试一次 - bookId: {}, chapterId: {}, keyver={}",
-                bookId, chapterId, contentKeyver);
-            registerKeyService.invalidateCurrentKey();
-            registerKeyService.refreshRegisterKey();
-            String retryKey = registerKeyService.getDecryptionKey(contentKeyver);
-            return FqCrypto.decryptAndDecompressContent(encrypted, retryKey);
         }
     }
 
@@ -584,6 +472,5 @@ public class FQChapterPrefetchService {
             || reason.contains("upstream item code=")
             || reason.contains("Encrypted data too short");
     }
-
 
 }

@@ -14,6 +14,7 @@ import java.nio.charset.StandardCharsets;
 import java.security.SecureRandom;
 import java.util.Base64;
 import java.util.zip.GZIPInputStream;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * FQNovel加密解密工具类
@@ -27,6 +28,8 @@ public class FqCrypto {
      * 注册密钥的固定key
      */
     public static final String REG_KEY = "ac25c67ddd8f38c1b37a2348828e222e";
+
+    private static final ConcurrentHashMap<String, FqCrypto> INSTANCE_CACHE = new ConcurrentHashMap<>();
     
     private final SecretKeySpec secretKey;
     
@@ -224,8 +227,7 @@ public class FqCrypto {
      * @return 解密并解压后的文本内容
      */
     public static String decryptAndDecompressContent(String encryptedContent, String keyHex) throws Exception {
-        // 解密内容
-        FqCrypto crypto = new FqCrypto(keyHex);
+        FqCrypto crypto = getOrCreate(keyHex);
         byte[] decryptedBytes = crypto.decrypt(encryptedContent);
         
         // 检查是否是 gzip 压缩数据 (gzip 魔法数字: 0x1f, 0x8b)
@@ -262,5 +264,17 @@ public class FqCrypto {
             return result.toString();
         }
     }
-    
+
+    /**
+     * 获取或创建 FqCrypto 实例（按 hexKey 缓存，避免重复创建 SecretKeySpec）。
+     */
+    public static FqCrypto getOrCreate(String hexKey) {
+        return INSTANCE_CACHE.computeIfAbsent(hexKey, k -> {
+            try {
+                return new FqCrypto(k);
+            } catch (Exception e) {
+                throw new IllegalArgumentException("无法创建 FqCrypto 实例: " + e.getMessage(), e);
+            }
+        });
+    }
 }

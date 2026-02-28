@@ -9,7 +9,7 @@ spring:
     name: unidbg-boot-server
   webmvc:
     async:
-      request-timeout: 300s  # 增加到5分钟，避免registerkey刷新时超时
+      request-timeout: 300s
   threads:
     virtual:
       enabled: true
@@ -91,20 +91,20 @@ fq:
           os-version: '13'
           os-api: '32'
       - name: dev02
-        user-agent: "com.dragon.read.oversea.gp/68132 (Linux; U; Android 13; zh_CN; Sirius; Build/V417IR;tt-ok/3.12.13.4-tiktok)"
+        user-agent: "com.dragon.read.oversea.gp/68132 (Linux; U; Android 14; zh_CN; SM-S9110; Build/UP1A.231005.007;tt-ok/3.12.13.4-tiktok)"
         device:
           aid: '1967'
-          cdid: 9daf93bf-4dcf-417e-8795-20284ad26a1f
-          device-brand: Xiaomi
-          device-id: '1778337441136410'
-          device-type: Sirius
-          dpi: '440'
+          cdid: a3e71c92-5f8a-4d3b-b6e1-48c0d7f3a215
+          device-brand: samsung
+          device-id: '824916735028471'
+          device-type: SM-S9110
+          dpi: '480'
           host-abi: arm64-v8a
-          install-id: '573270579220059'
-          resolution: "2244*1080"
-          rom-version: "V417IR+release-keys"
+          install-id: '824916735312058'
+          resolution: "2340*1080"
+          rom-version: "UP1A.231005.007+release-keys"
           update-version-code: '68132'
           version-code: '68132'
           version-name: "6.8.1.32"
-          os-version: '13'
-          os-api: '33'
+          os-version: '14'
+          os-api: '34'
