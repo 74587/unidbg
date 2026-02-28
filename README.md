@@ -8,10 +8,6 @@
 ## 本地编译
 
 ```bash
-mvn -v
-```
-
-```bash
 mvn -DskipTests package
 ```
 
