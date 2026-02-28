@@ -24,7 +24,7 @@
         </encoder>
     </appender>
 
-    <logger name="com.anjia.unidbgserver" level="INFO"/>
+    <logger name="com.mengying.fqnovel" level="INFO"/>
     <logger name="com.github.unidbg" level="WARN"/>
     <logger name="net.fornwall" level="ERROR"/>
     <logger name="org.springframework" level="WARN"/>

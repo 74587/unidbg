@@ -10,7 +10,7 @@
         <relativePath/>
     </parent>
 
-    <groupId>com.anjia</groupId>
+    <groupId>com.mengying</groupId>
     <artifactId>unidbg-boot-server</artifactId>
     <version>0.0.1-SNAPSHOT</version>
     <name>unidbg-boot-server</name>
