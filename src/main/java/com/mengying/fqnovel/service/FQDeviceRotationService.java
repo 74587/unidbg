@@ -251,7 +251,7 @@ public class FQDeviceRotationService {
 
             DeviceInfo deviceInfo = rotateFromConfiguredPool(reason);
             if (deviceInfo == null) {
-                log.warn("检测到异常，但未配置 fq.api.device-pool，无法自动切换设备：原因={}", reason);
+                log.warn("检测到异常，但设备池中无可切换设备：原因={}", reason);
                 return null;
             }
 
