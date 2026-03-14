@@ -7,6 +7,7 @@ import com.mengying.fqnovel.utils.ThrottledLogger;
 import com.mengying.fqnovel.dto.FQNovelResponse;
 import com.mengying.fqnovel.dto.FQSearchRequest;
 import com.mengying.fqnovel.dto.FQSearchResponse;
+import com.mengying.fqnovel.dto.FQSearchUpstreamRequest;
 import com.mengying.fqnovel.utils.FQApiUtils;
 import com.mengying.fqnovel.utils.FQSearchResponseParser;
 import com.mengying.fqnovel.utils.LocalCacheFactory;
@@ -16,7 +17,6 @@ import com.github.benmanes.caffeine.cache.Cache;
 import com.fasterxml.jackson.databind.JsonNode;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.beans.BeanUtils;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
@@ -82,8 +82,8 @@ public class FQSearchService {
 
     @PostConstruct
     public void initCaches() {
-        int searchMax = Math.max(1, downloadProperties.getSearchCacheMaxEntries());
-        long searchTtl = Math.max(0L, downloadProperties.getSearchCacheTtlMs());
+        int searchMax = Math.max(1, downloadProperties.getCache().getSearchMaxEntries());
+        long searchTtl = Math.max(0L, downloadProperties.getCache().getSearchTtlMs());
         this.searchCache = LocalCacheFactory.build(searchMax, searchTtl);
     }
 
@@ -191,8 +191,7 @@ public class FQSearchService {
             if (searchRequest == null) {
                 return SearchContinuation.done(FQNovelResponse.error("搜索请求不能为空"));
             }
-            FQSearchRequest enrichedRequest = copyRequest(searchRequest);
-            searchRequestEnricher.enrich(enrichedRequest);
+            FQSearchUpstreamRequest enrichedRequest = searchRequestEnricher.enrich(searchRequest);
 
             if (Texts.hasText(enrichedRequest.getSearchId())) {
                 enrichedRequest.setIsFirstEnterSearch(false);
@@ -201,7 +200,7 @@ public class FQSearchService {
                 return SearchContinuation.done(response);
             }
 
-            FQSearchRequest firstRequest = copyRequest(enrichedRequest);
+            FQSearchUpstreamRequest firstRequest = copyRequest(enrichedRequest);
             firstRequest.setIsFirstEnterSearch(true);
             firstRequest.setLastSearchPageInterval(FQConstants.Search.PHASE1_LAST_SEARCH_PAGE_INTERVAL);
             FQNovelResponse<FQSearchResponse> firstResponse = performSearchInternal(firstRequest);
@@ -229,7 +228,7 @@ public class FQSearchService {
             if (Texts.isBlank(searchId)) {
                 int perDeviceRetries = Math.max(
                     1,
-                    Math.min(FQConstants.Search.MAX_RETRIES_PER_DEVICE, downloadProperties.getMaxRetries())
+                    Math.min(FQConstants.Search.MAX_RETRIES_PER_DEVICE, downloadProperties.getRetry().getMaxRetries())
                 );
                 List<FQApiProperties.DeviceProfile> pool = fqApiProperties.getDevicePool();
                 int maxDevices = Math.max(1, pool == null ? 0 : pool.size());
@@ -244,8 +243,8 @@ public class FQSearchService {
                         if (!(deviceAttempt == 0 && retryAttempt == 0)) {
                             int retryOrdinal = deviceAttempt * perDeviceRetries + retryAttempt + 1;
                             long delay = RetryBackoff.computeDelay(
-                                downloadProperties.getRetryDelayMs(),
-                                downloadProperties.getRetryMaxDelayMs(),
+                                downloadProperties.getRetry().getDelayMs(),
+                                downloadProperties.getRetry().getMaxDelayMs(),
                                 retryOrdinal,
                                 RETRY_MAX_BACKOFF_EXPONENT,
                                 RETRY_JITTER_MIN_MS,
@@ -289,7 +288,7 @@ public class FQSearchService {
     }
 
     private FQNovelResponse<FQSearchResponse> executeSecondPhaseSearch(
-        FQSearchRequest enrichedRequest,
+        FQSearchUpstreamRequest enrichedRequest,
         String searchId,
         int lastSearchPageInterval
     ) {
@@ -298,7 +297,7 @@ public class FQSearchService {
             return shuttingDown;
         }
 
-        FQSearchRequest secondRequest = copyRequest(enrichedRequest);
+        FQSearchUpstreamRequest secondRequest = copyRequest(enrichedRequest);
         secondRequest.setSearchId(searchId);
         secondRequest.setIsFirstEnterSearch(false);
         secondRequest.setLastSearchPageInterval(lastSearchPageInterval);
@@ -315,11 +314,11 @@ public class FQSearchService {
     }
 
     private record SearchContinuation(
-        FQSearchRequest enrichedRequest,
+        FQSearchUpstreamRequest enrichedRequest,
         String searchId,
         FQNovelResponse<FQSearchResponse> response
     ) {
-        private static SearchContinuation next(FQSearchRequest enrichedRequest, String searchId) {
+        private static SearchContinuation next(FQSearchUpstreamRequest enrichedRequest, String searchId) {
             return new SearchContinuation(enrichedRequest, searchId, null);
         }
 
@@ -328,20 +327,19 @@ public class FQSearchService {
         }
     }
 
-    private static void ensurePassback(FQSearchRequest request) {
+    private static void ensurePassback(FQSearchUpstreamRequest request) {
         if (request != null && request.getPassback() == null) {
             request.setPassback(request.getOffset());
         }
     }
 
-    private static FQSearchRequest copyRequest(FQSearchRequest request) {
-        FQSearchRequest copied = new FQSearchRequest();
-        BeanUtils.copyProperties(request, copied);
+    private static FQSearchUpstreamRequest copyRequest(FQSearchUpstreamRequest request) {
+        FQSearchUpstreamRequest copied = request == null ? new FQSearchUpstreamRequest() : request.copy();
         ensurePassback(copied);
         return copied;
     }
 
-    private FQNovelResponse<FQSearchResponse> performSearchInternal(FQSearchRequest searchRequest) {
+    private FQNovelResponse<FQSearchResponse> performSearchInternal(FQSearchUpstreamRequest searchRequest) {
         try {
             String url = fqApiUtils.getSearchApiBaseUrl() + FQConstants.Search.TAB_PATH;
             Map<String, String> params = fqApiUtils.buildSearchParams(searchRequest);

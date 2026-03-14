@@ -13,8 +13,8 @@ public class RestTemplateConfig {
 
     @Bean
     public RestTemplate restTemplate(FQDownloadProperties downloadProperties) {
-        Duration connectTimeout = safeTimeout(downloadProperties.getUpstreamConnectTimeoutMs(), Duration.ofSeconds(8));
-        Duration readTimeout = safeTimeout(downloadProperties.getUpstreamReadTimeoutMs(), Duration.ofSeconds(15));
+        Duration connectTimeout = safeTimeout(downloadProperties.getUpstream().getConnectTimeoutMs(), Duration.ofSeconds(8));
+        Duration readTimeout = safeTimeout(downloadProperties.getUpstream().getReadTimeoutMs(), Duration.ofSeconds(15));
 
         // 使用 JDK HttpClient，请求连接可复用，避免高频章节请求下频繁建连。
         HttpClient httpClient = HttpClient.newBuilder()

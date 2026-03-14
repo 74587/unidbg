@@ -57,10 +57,10 @@ public class AsyncExecutorConfig {
             return Executors.newVirtualThreadPerTaskExecutor();
         }
 
-        int coreSize = Math.max(1, downloadProperties.getPrefetchExecutorCoreSize());
-        int maxSize = Math.max(coreSize, downloadProperties.getPrefetchExecutorMaxSize());
-        int queueCapacity = Math.max(0, downloadProperties.getPrefetchExecutorQueueCapacity());
-        int keepAliveSeconds = Math.max(0, downloadProperties.getPrefetchExecutorKeepAliveSeconds());
+        int coreSize = Math.max(1, downloadProperties.getPrefetch().getExecutorCoreSize());
+        int maxSize = Math.max(coreSize, downloadProperties.getPrefetch().getExecutorMaxSize());
+        int queueCapacity = Math.max(0, downloadProperties.getPrefetch().getExecutorQueueCapacity());
+        int keepAliveSeconds = Math.max(0, downloadProperties.getPrefetch().getExecutorKeepAliveSeconds());
 
         ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
         executor.setCorePoolSize(coreSize);

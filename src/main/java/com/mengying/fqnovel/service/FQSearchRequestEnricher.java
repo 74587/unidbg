@@ -1,7 +1,9 @@
 package com.mengying.fqnovel.service;
 
 import com.mengying.fqnovel.config.FQApiProperties;
+import com.mengying.fqnovel.config.FQApiRuntimeProfileManager;
 import com.mengying.fqnovel.dto.FQSearchRequest;
+import com.mengying.fqnovel.dto.FQSearchUpstreamRequest;
 import com.mengying.fqnovel.utils.Texts;
 import org.springframework.stereotype.Service;
 
@@ -47,25 +49,27 @@ public class FQSearchRequestEnricher {
     private static final int DEFAULT_COMPLIANCE_STATUS = 0;
     private static final int DEFAULT_HAR_STATUS = 0;
 
-    private final FQApiProperties fqApiProperties;
+    private final FQApiRuntimeProfileManager runtimeProfileManager;
 
-    public FQSearchRequestEnricher(FQApiProperties fqApiProperties) {
-        this.fqApiProperties = fqApiProperties;
+    public FQSearchRequestEnricher(FQApiRuntimeProfileManager runtimeProfileManager) {
+        this.runtimeProfileManager = runtimeProfileManager;
     }
 
-    public void enrich(FQSearchRequest request) {
-        if (request == null) {
-            return;
-        }
-
-        applyQueryDefaults(request);
-        applySearchBehaviorDefaults(request);
-        applySessionDefaults(request);
-        applyRuntimeDefaults(request);
-        applyDeviceProfileDefaults(request);
+    public FQSearchUpstreamRequest enrich(FQSearchRequest request) {
+        FQSearchUpstreamRequest upstreamRequest = toUpstreamRequest(request);
+        applyQueryDefaults(upstreamRequest);
+        applySearchBehaviorDefaults(upstreamRequest);
+        applySessionDefaults(upstreamRequest);
+        applyRuntimeDefaults(upstreamRequest);
+        applyDeviceProfileDefaults(upstreamRequest);
+        return upstreamRequest;
     }
 
-    private void applyQueryDefaults(FQSearchRequest request) {
+    private static FQSearchUpstreamRequest toUpstreamRequest(FQSearchRequest request) {
+        return FQSearchUpstreamRequest.from(request);
+    }
+
+    private void applyQueryDefaults(FQSearchUpstreamRequest request) {
         setIfNull(request::getOffset, request::setOffset, DEFAULT_OFFSET);
         setIfNull(request::getCount, request::setCount, DEFAULT_COUNT);
         setIfNull(request::getTabType, request::setTabType, DEFAULT_TAB_TYPE);
@@ -83,7 +87,7 @@ public class FQSearchRequestEnricher {
         setIfNull(request::getTabName, request::setTabName, DEFAULT_TAB_NAME);
     }
 
-    private static void applySearchBehaviorDefaults(FQSearchRequest request) {
+    private static void applySearchBehaviorDefaults(FQSearchUpstreamRequest request) {
         setIfNull(request::getLastSearchPageInterval, request::setLastSearchPageInterval, DEFAULT_LAST_SEARCH_PAGE_INTERVAL);
         setIfNull(request::getLineWordsNum, request::setLineWordsNum, DEFAULT_LINE_WORDS_NUM);
         setIfNull(request::getLastConsumeInterval, request::setLastConsumeInterval, DEFAULT_LAST_CONSUME_INTERVAL);
@@ -91,12 +95,12 @@ public class FQSearchRequestEnricher {
         setIfNull(request::getKlinkEgdi, request::setKlinkEgdi, DEFAULT_KLINK_EGDI);
     }
 
-    private static void applySessionDefaults(FQSearchRequest request) {
+    private static void applySessionDefaults(FQSearchUpstreamRequest request) {
         ensureSessionId(request::getNormalSessionId, request::setNormalSessionId);
         ensureSessionId(request::getColdStartSessionId, request::setColdStartSessionId);
     }
 
-    private static void applyRuntimeDefaults(FQSearchRequest request) {
+    private static void applyRuntimeDefaults(FQSearchUpstreamRequest request) {
         setIfNull(request::getCharging, request::setCharging, DEFAULT_CHARGING);
         setIfNull(request::getScreenBrightness, request::setScreenBrightness, DEFAULT_SCREEN_BRIGHTNESS);
         setIfNull(request::getBatteryPct, request::setBatteryPct, DEFAULT_BATTERY_PCT);
@@ -114,7 +118,7 @@ public class FQSearchRequestEnricher {
         setIfNull(request::getHarStatus, request::setHarStatus, DEFAULT_HAR_STATUS);
     }
 
-    private void applyDeviceProfileDefaults(FQSearchRequest request) {
+    private void applyDeviceProfileDefaults(FQSearchUpstreamRequest request) {
         FQApiProperties.Device device = runtimeDevice();
         setIfNull(request::getRomVersion, request::setRomVersion, deviceFieldOrEmpty(device, FQApiProperties.Device::getRomVersion));
         setIfNull(request::getCdid, request::setCdid, deviceFieldOrEmpty(device, FQApiProperties.Device::getCdid));
@@ -133,7 +137,7 @@ public class FQSearchRequestEnricher {
     }
 
     private FQApiProperties.Device runtimeDevice() {
-        FQApiProperties.RuntimeProfile runtimeProfile = fqApiProperties == null ? null : fqApiProperties.getRuntimeProfile();
+        FQApiProperties.RuntimeProfile runtimeProfile = runtimeProfileManager == null ? null : runtimeProfileManager.getRuntimeProfile();
         return runtimeProfile == null ? null : runtimeProfile.getDeviceUnsafe();
     }
 

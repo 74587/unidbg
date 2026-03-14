@@ -46,7 +46,7 @@ public class FQEncryptServiceWorker {
         }
 
         long epoch = RESET_EPOCH.incrementAndGet();
-        log.warn("请求重置 FQ signer（unidbg）: epoch={}, reason={}", epoch, reason);
+        log.warn("请求重置签名服务（unidbg）: epoch={}, reason={}", epoch, reason);
         return epoch;
     }
 
@@ -79,7 +79,7 @@ public class FQEncryptServiceWorker {
         try {
             signer.destroy();
         } catch (Exception e) {
-            log.warn("销毁FQ签名服务时发生异常", e);
+            log.warn("销毁签名服务时发生异常", e);
         }
     }
 }

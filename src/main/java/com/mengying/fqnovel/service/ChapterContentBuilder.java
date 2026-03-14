@@ -75,7 +75,7 @@ public class ChapterContentBuilder {
             chapterId,
             itemContent,
             decryptedContent,
-            downloadProperties.isChapterIncludeRawContent()
+            downloadProperties.getCache().isChapterIncludeRawContent()
         );
     }
 

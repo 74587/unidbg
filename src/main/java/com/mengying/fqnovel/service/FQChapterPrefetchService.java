@@ -82,11 +82,11 @@ public class FQChapterPrefetchService {
 
     @PostConstruct
     public void initCaches() {
-        int chapterMax = Math.max(1, downloadProperties.getChapterCacheMaxEntries());
-        long chapterTtl = downloadProperties.getChapterCacheTtlMs();
-        long chapterNegativeTtl = Math.max(0L, downloadProperties.getChapterNegativeCacheTtlMs());
+        int chapterMax = Math.max(1, downloadProperties.getCache().getChapterMaxEntries());
+        long chapterTtl = downloadProperties.getCache().getChapterTtlMs();
+        long chapterNegativeTtl = Math.max(0L, downloadProperties.getCache().getChapterNegativeTtlMs());
         int dirMax = Math.max(MIN_DIRECTORY_CACHE_MAX_ENTRIES, chapterMax / 10);
-        long dirTtl = downloadProperties.getApiDirectoryCacheTtlMs();
+        long dirTtl = downloadProperties.getCache().getApiDirectoryTtlMs();
 
         this.chapterCache = LocalCacheFactory.build(chapterMax, chapterTtl);
         this.chapterNegativeCache = chapterNegativeTtl > 0 ? LocalCacheFactory.build(chapterMax, chapterNegativeTtl) : null;
@@ -247,7 +247,7 @@ public class FQChapterPrefetchService {
     }
 
     private int prefetchBatchSize() {
-        return Math.max(1, Math.min(MAX_CHAPTER_PREFETCH_SIZE, downloadProperties.getChapterPrefetchSize()));
+        return Math.max(1, Math.min(MAX_CHAPTER_PREFETCH_SIZE, downloadProperties.getPrefetch().getChapterSize()));
     }
 
     private List<String> selectPrefetchBatchIds(List<String> itemIds, int chapterIndex, String chapterId) {

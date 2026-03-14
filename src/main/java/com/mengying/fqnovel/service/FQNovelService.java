@@ -73,9 +73,9 @@ public class FQNovelService {
             return FQNovelResponse.error("服务正在退出中，请稍后重试");
         }
 
-        int maxAttempts = Math.max(1, downloadProperties.getMaxRetries());
-        long baseDelayMs = Math.max(0L, downloadProperties.getRetryDelayMs());
-        long maxDelayMs = Math.max(baseDelayMs, downloadProperties.getRetryMaxDelayMs());
+        int maxAttempts = Math.max(1, downloadProperties.getRetry().getMaxRetries());
+        long baseDelayMs = Math.max(0L, downloadProperties.getRetry().getDelayMs());
+        long maxDelayMs = Math.max(baseDelayMs, downloadProperties.getRetry().getMaxDelayMs());
 
         for (int attempt = 1; attempt <= maxAttempts; attempt++) {
             try {

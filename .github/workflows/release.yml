@@ -30,6 +30,44 @@ jobs:
           java-version: "25"
           cache: maven
 
+      - name: Set up latest Maven 3
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          MAVEN_VERSION="$(
+            curl -fsSL https://repo.maven.apache.org/maven2/org/apache/maven/apache-maven/maven-metadata.xml |
+            python3 -c '
+import sys
+import xml.etree.ElementTree as ET
+
+root = ET.parse(sys.stdin).getroot()
+versions = []
+for node in root.findall("./versioning/versions/version"):
+    text = (node.text or "").strip()
+    parts = text.split(".")
+    if text.startswith("3.") and len(parts) == 3 and all(part.isdigit() for part in parts):
+        versions.append(tuple(int(part) for part in parts))
+
+if not versions:
+    raise SystemExit("No stable Maven 3 release found")
+
+print(".".join(str(part) for part in max(versions)))
+'
+          )"
+
+          ARCHIVE="apache-maven-${MAVEN_VERSION}-bin.tar.gz"
+          BASE_URL="https://dlcdn.apache.org/maven/maven-3/${MAVEN_VERSION}/binaries"
+          CHECKSUM_URL="https://downloads.apache.org/maven/maven-3/${MAVEN_VERSION}/binaries/${ARCHIVE}.sha512"
+
+          curl -fsSL "${BASE_URL}/${ARCHIVE}" -o "${RUNNER_TEMP}/${ARCHIVE}"
+          curl -fsSL "${CHECKSUM_URL}" -o "${RUNNER_TEMP}/${ARCHIVE}.sha512"
+
+          echo "$(tr -d '[:space:]' < "${RUNNER_TEMP}/${ARCHIVE}.sha512")  ${RUNNER_TEMP}/${ARCHIVE}" | sha512sum -c -
+
+          tar -xzf "${RUNNER_TEMP}/${ARCHIVE}" -C "${RUNNER_TEMP}"
+          echo "${RUNNER_TEMP}/apache-maven-${MAVEN_VERSION}/bin" >> "$GITHUB_PATH"
+
       - name: Verify Maven version
         run: mvn -version
 

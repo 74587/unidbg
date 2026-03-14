@@ -34,12 +34,12 @@ public class FQEncryptService {
         this.properties = properties;
         this.objectMapper = SHARED_OBJECT_MAPPER;
         this.idleFQ = createIdleFq();
-        log.info("FQ签名服务初始化完成");
+        log.info("签名服务初始化完成");
     }
 
     public void reset(String reason) {
         if (ProcessLifecycle.isShuttingDown()) {
-            log.warn("进程退出中，跳过 FQ signer reset: reason={}", reason);
+            log.warn("进程退出中，跳过签名服务重置: reason={}", reason);
             return;
         }
         lock.lock();
@@ -53,7 +53,7 @@ public class FQEncryptService {
                     // ignore
                 }
             }
-            log.warn("FQ签名服务已重置，reason={}", reason);
+            log.warn("签名服务已重置，reason={}", reason);
         } finally {
             lock.unlock();
         }
@@ -81,10 +81,14 @@ public class FQEncryptService {
                 log.debug("准备生成FQ签名 - Headers: {}", maskSensitiveHeaders(headers));
             }
 
-            IdleFQ signer = ensureSigner();
-
-            // 调用IdleFQ的签名生成方法
-            String signatureResult = signer.generateSignature(url, headers);
+            String signatureResult;
+            lock.lock();
+            try {
+                IdleFQ signer = ensureSignerLocked();
+                signatureResult = signer.generateSignature(url, headers);
+            } finally {
+                lock.unlock();
+            }
 
             if (!Texts.hasText(signatureResult)) {
                 log.error("签名生成失败，返回结果为空");
@@ -107,21 +111,15 @@ public class FQEncryptService {
         }
     }
 
-    private IdleFQ ensureSigner() {
+    private IdleFQ ensureSignerLocked() {
         IdleFQ signer = this.idleFQ;
         if (signer != null) {
             return signer;
         }
-
-        lock.lock();
-        try {
-            if (this.idleFQ == null) {
-                this.idleFQ = createIdleFq();
-            }
-            return this.idleFQ;
-        } finally {
-            lock.unlock();
+        if (this.idleFQ == null) {
+            this.idleFQ = createIdleFq();
         }
+        return this.idleFQ;
     }
 
     /**
@@ -341,6 +339,6 @@ public class FQEncryptService {
         // 清理临时文件
         TempFileUtils.cleanup();
 
-        log.info("FQ签名服务资源释放完成");
+        log.info("签名服务资源释放完成");
     }
 }

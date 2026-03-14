@@ -1,8 +1,9 @@
 package com.mengying.fqnovel.utils;
 
 import com.mengying.fqnovel.config.FQApiProperties;
+import com.mengying.fqnovel.config.FQApiRuntimeProfileManager;
 import com.mengying.fqnovel.dto.FQDirectoryRequest;
-import com.mengying.fqnovel.dto.FQSearchRequest;
+import com.mengying.fqnovel.dto.FQSearchUpstreamRequest;
 import org.springframework.stereotype.Component;
 
 import java.net.URLDecoder;
@@ -45,9 +46,11 @@ public class FQApiUtils {
     );
 
     private final FQApiProperties fqApiProperties;
+    private final FQApiRuntimeProfileManager runtimeProfileManager;
 
-    public FQApiUtils(FQApiProperties fqApiProperties) {
+    public FQApiUtils(FQApiProperties fqApiProperties, FQApiRuntimeProfileManager runtimeProfileManager) {
         this.fqApiProperties = fqApiProperties;
+        this.runtimeProfileManager = runtimeProfileManager;
     }
 
     /**
@@ -116,7 +119,7 @@ public class FQApiUtils {
      */
     public Map<String, String> buildCommonHeaders(long currentTime) {
         Map<String, String> headers = new LinkedHashMap<>(16);
-        FQApiProperties.RuntimeProfile runtimeProfile = fqApiProperties.getRuntimeProfile();
+        FQApiProperties.RuntimeProfile runtimeProfile = runtimeProfileManager.getRuntimeProfile();
         FQApiProperties.Device device = runtimeProfile == null ? null : runtimeProfile.getDeviceUnsafe();
         String installId = safeGet(device, FQApiProperties.Device::getInstallId);
 
@@ -228,7 +231,7 @@ public class FQApiUtils {
         }
     }
 
-    public Map<String, String> buildSearchParams(FQSearchRequest searchRequest) {
+    public Map<String, String> buildSearchParams(FQSearchUpstreamRequest searchRequest) {
         Map<String, String> params = buildCommonApiParams();
 
         params.put("bookshelf_search_plan", String.valueOf(searchRequest.getBookshelfSearchPlan()));
@@ -348,7 +351,7 @@ public class FQApiUtils {
     }
 
     private FQApiProperties.Device requireRuntimeDevice() {
-        FQApiProperties.RuntimeProfile runtimeProfile = fqApiProperties == null ? null : fqApiProperties.getRuntimeProfile();
+        FQApiProperties.RuntimeProfile runtimeProfile = runtimeProfileManager == null ? null : runtimeProfileManager.getRuntimeProfile();
         FQApiProperties.Device device = runtimeProfile == null ? null : runtimeProfile.getDeviceUnsafe();
         if (device == null) {
             throw new IllegalStateException("缺少设备配置：fq.api.device");

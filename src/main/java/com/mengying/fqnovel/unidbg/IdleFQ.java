@@ -38,6 +38,7 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.concurrent.locks.ReentrantLock;
 
 @SuppressWarnings("unchecked")
 public class IdleFQ extends AbstractJni implements IOResolver<AndroidFileIO> {
@@ -57,13 +58,12 @@ public class IdleFQ extends AbstractJni implements IOResolver<AndroidFileIO> {
     private static final int SDK_VERSION = 23;
 
     private final AndroidEmulator emulator;
-    private final VM vm;
     private final Module module;
     private final Memory memory;
-    private final DvmClass m;
     private final boolean loggable;
     private final String apkPath;
     private final String apkClasspath;
+    private final ReentrantLock lifecycleLock = new ReentrantLock();
 
     // 临时文件缓存
     private File tempApkFile;
@@ -71,17 +71,21 @@ public class IdleFQ extends AbstractJni implements IOResolver<AndroidFileIO> {
     private File tempSoCShareFile;
     private File tempRootfsDir;
     private File tempMsCertFile;
+    private volatile boolean destroyed = false;
 
     public IdleFQ(boolean loggable, String apkPath, String apkClasspath) {
         this.loggable = loggable;
         this.apkPath = apkPath;
         this.apkClasspath = apkClasspath;
+        AndroidEmulator emulatorCandidate = null;
+        Memory memoryCandidate = null;
+        Module moduleCandidate = null;
         try {
             // 初始化临时文件
             initTempFiles();
 
             // 创建模拟器
-            emulator = AndroidEmulatorBuilder
+            emulatorCandidate = AndroidEmulatorBuilder
                 .for64Bit()
                 .setRootDir(tempRootfsDir)
                 .setProcessName(PACKAGE_NAME)
@@ -89,42 +93,47 @@ public class IdleFQ extends AbstractJni implements IOResolver<AndroidFileIO> {
                 .build();
 
             // 设置inode和uid
-            initEmulatorSettings();
+            initEmulatorSettings(emulatorCandidate);
 
             // 设置系统调用处理器
-            SyscallHandler<AndroidFileIO> handler = emulator.getSyscallHandler();
+            SyscallHandler<AndroidFileIO> handler = emulatorCandidate.getSyscallHandler();
             handler.setVerbose(false);
             handler.addIOResolver(this);
 
             // 初始化内存和VM
-            memory = emulator.getMemory();
-            memory.setLibraryResolver(new AndroidResolver(SDK_VERSION));
+            memoryCandidate = emulatorCandidate.getMemory();
+            memoryCandidate.setLibraryResolver(new AndroidResolver(SDK_VERSION));
 
-            vm = emulator.createDalvikVM();
+            VM vm = emulatorCandidate.createDalvikVM();
             vm.setJni(this);
             vm.setVerbose(loggable);
 
             // 导入第三方虚拟模块
-            new AndroidModule(emulator, vm).register(memory);
-            new JniGraphics(emulator, vm).register(memory);
+            new AndroidModule(emulatorCandidate, vm).register(memoryCandidate);
+            new JniGraphics(emulatorCandidate, vm).register(memoryCandidate);
 
             // 载入依赖so库
             vm.loadLibrary(tempSoCShareFile, false);
 
             // 初始化JNI对应类
-            m = vm.resolveClass("ms/bd/c/m");
-            DvmClass a4a = vm.resolveClass("ms/bd/c/a4$a", m);
-            DvmClass ms = vm.resolveClass("com/bytedance/mobsec/metasec/ml/MS", a4a);
+            DvmClass bridgeClass = vm.resolveClass("ms/bd/c/m");
+            DvmClass a4a = vm.resolveClass("ms/bd/c/a4$a", bridgeClass);
+            vm.resolveClass("com/bytedance/mobsec/metasec/ml/MS", a4a);
 
             // 加载主要so库
             DalvikModule dm = vm.loadLibrary(tempSoMetasecMlFile, true);
-            module = dm.getModule();
-            dm.callJNI_OnLoad(emulator);
+            moduleCandidate = dm.getModule();
+            dm.callJNI_OnLoad(emulatorCandidate);
 
-            log.info("IdleFQ初始化完成");
+            this.emulator = emulatorCandidate;
+            this.memory = memoryCandidate;
+            this.module = moduleCandidate;
+
+            log.info("初始化完成");
         } catch (Exception e) {
-            log.error("IdleFQ初始化失败", e);
-            throw new RuntimeException("IdleFQ初始化失败", e);
+            cleanupAfterInitFailure(emulatorCandidate);
+            log.error("初始化失败", e);
+            throw new RuntimeException("初始化失败", e);
         }
     }
 
@@ -214,7 +223,7 @@ public class IdleFQ extends AbstractJni implements IOResolver<AndroidFileIO> {
     /**
      * 初始化模拟器设置
      */
-    private void initEmulatorSettings() {
+    private void initEmulatorSettings(AndroidEmulator emulator) {
         Map<String, Integer> iNode = new LinkedHashMap<>();
         iNode.put("/data/system", 671745);
         iNode.put("/data/app", 327681);
@@ -234,7 +243,14 @@ public class IdleFQ extends AbstractJni implements IOResolver<AndroidFileIO> {
      * @return 生成的签名字符串，失败时返回null
      */
     public String generateSignature(String url, String header) {
+        lifecycleLock.lock();
         try {
+            if (destroyed) {
+                if (loggable) {
+                    log.debug("已销毁，跳过签名生成");
+                }
+                return null;
+            }
             if (loggable) {
                 log.debug("准备生成签名 - URL: {}", url);
                 log.debug("准备生成签名 - Header: {}", header);
@@ -266,6 +282,8 @@ public class IdleFQ extends AbstractJni implements IOResolver<AndroidFileIO> {
         } catch (Exception e) {
             log.error("生成签名过程出错: {}", e.getMessage(), e);
             return null;
+        } finally {
+            lifecycleLock.unlock();
         }
     }
 
@@ -408,7 +426,10 @@ public class IdleFQ extends AbstractJni implements IOResolver<AndroidFileIO> {
         if ("com/bytedance/mobsec/metasec/ml/MS->a()V".equals(signature)) {
             return 0x40;
         }
-        throw new UnsupportedOperationException(signature);
+        if (loggable) {
+            log.debug("未处理的静态整数字段，降级返回0: {}", signature);
+        }
+        return 0;
     }
 
     @Override
@@ -477,13 +498,20 @@ public class IdleFQ extends AbstractJni implements IOResolver<AndroidFileIO> {
      * 释放资源
      */
     public void destroy() {
-        if (emulator != null) {
+        lifecycleLock.lock();
+        try {
+            if (destroyed) {
+                return;
+            }
+            destroyed = true;
             try {
                 emulator.close();
-                log.info("IdleFQ资源已释放");
+                log.info("资源已释放");
             } catch (Exception e) {
                 log.error("关闭模拟器失败", e);
             }
+        } finally {
+            lifecycleLock.unlock();
         }
 
         // 高频 reset 时 rootfs 目录会在 /tmp 迅速累积；这里主动清理，避免容器磁盘被占满。
@@ -492,6 +520,28 @@ public class IdleFQ extends AbstractJni implements IOResolver<AndroidFileIO> {
         } catch (Exception e) {
             if (loggable) {
                 log.debug("清理临时 rootfs 目录失败: {}", tempRootfsDir != null ? tempRootfsDir.getAbsolutePath() : null, e);
+            }
+        } finally {
+            tempRootfsDir = null;
+        }
+    }
+
+    private void cleanupAfterInitFailure(AndroidEmulator emulatorCandidate) {
+        if (emulatorCandidate != null) {
+            try {
+                emulatorCandidate.close();
+            } catch (Exception closeError) {
+                if (loggable) {
+                    log.debug("初始化失败后关闭模拟器失败", closeError);
+                }
+            }
+        }
+
+        try {
+            deleteRecursively(tempRootfsDir);
+        } catch (Exception cleanupError) {
+            if (loggable) {
+                log.debug("初始化失败后清理临时 rootfs 目录失败", cleanupError);
             }
         } finally {
             tempRootfsDir = null;

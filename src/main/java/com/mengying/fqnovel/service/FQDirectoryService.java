@@ -59,8 +59,8 @@ public class FQDirectoryService {
 
     @PostConstruct
     public void initCaches() {
-        int directoryMax = Math.max(1, downloadProperties.getApiDirectoryCacheMaxEntries());
-        long directoryTtl = Math.max(0L, downloadProperties.getApiDirectoryCacheTtlMs());
+        int directoryMax = Math.max(1, downloadProperties.getCache().getApiDirectoryMaxEntries());
+        long directoryTtl = Math.max(0L, downloadProperties.getCache().getApiDirectoryTtlMs());
         this.directoryApiCache = LocalCacheFactory.build(directoryMax, directoryTtl);
     }
 

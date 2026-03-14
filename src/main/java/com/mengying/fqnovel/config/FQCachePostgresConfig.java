@@ -59,7 +59,7 @@ public class FQCachePostgresConfig {
         hikari.setMinimumIdle(minIdle);
         hikari.setConnectionTimeout(Math.max(1000L, properties.getConnectionTimeoutMs()));
 
-        log.info("PostgreSQL 章节缓存已启用");
+        log.info("章节缓存已启用");
         return new HikariDataSource(hikari);
     }
 

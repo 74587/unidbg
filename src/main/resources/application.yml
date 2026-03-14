@@ -23,35 +23,38 @@ fq:
       url: ${DB_URL:}
   download:
     request-interval-ms: 500
-    max-retries: 3
-    retry-delay-ms: 2000
-    retry-max-delay-ms: 10000
-    upstream-connect-timeout-ms: 15000
-    upstream-read-timeout-ms: 30000
-    chapter-prefetch-size: 30
-    prefetch-executor-core-size: 2
-    prefetch-executor-max-size: 2
-    prefetch-executor-queue-capacity: 256
-    prefetch-executor-keep-alive-seconds: 60
-    chapter-cache-max-entries: 2000
-    chapter-cache-ttl-ms: 600000
-    chapter-negative-cache-ttl-ms: 600000
-    chapter-include-raw-content: false
-    search-cache-max-entries: 256
-    search-cache-ttl-ms: 45000
-    api-directory-cache-max-entries: 512
-    api-directory-cache-ttl-ms: 600000
-    auto-restart-enabled: true
-    auto-restart-error-threshold: 5
-    auto-restart-window-ms: 300000
-    auto-restart-min-interval-ms: 120000
-    auto-restart-force-halt-after-ms: 10000
-    auto-restart-self-heal-enabled: true
-    auto-restart-self-heal-cooldown-ms: 180000
+    retry:
+      max-retries: 3
+      delay-ms: 2000
+      max-delay-ms: 10000
+    upstream:
+      connect-timeout-ms: 15000
+      read-timeout-ms: 30000
+    prefetch:
+      chapter-size: 30
+      executor-core-size: 2
+      executor-max-size: 2
+      executor-queue-capacity: 256
+      executor-keep-alive-seconds: 60
+    cache:
+      chapter-max-entries: 2000
+      chapter-ttl-ms: 600000
+      chapter-negative-ttl-ms: 600000
+      chapter-include-raw-content: false
+      search-max-entries: 256
+      search-ttl-ms: 45000
+      api-directory-max-entries: 512
+      api-directory-ttl-ms: 600000
+    auto-restart:
+      enabled: true
+      error-threshold: 5
+      window-ms: 300000
+      min-interval-ms: 120000
+      force-halt-after-ms: 10000
+      self-heal-enabled: true
+      self-heal-cooldown-ms: 180000
   api:
     base-url: "https://api5-normal-sinfonlineb.fqnovel.com"
-    # 顶层运行设备未显式配置时，会从设备池首项或 device-pool-startup-name 指定项继承
-
     device-pool-size: 3
     device-pool-shuffle-on-startup: true
     device-pool-probe-on-startup: true

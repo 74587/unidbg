@@ -63,7 +63,7 @@ public class PgChapterCacheService {
         try {
             jdbcTemplate.execute(CREATE_TABLE_SQL);
             jdbcTemplate.execute(CREATE_UPDATED_INDEX_SQL);
-            log.info("PostgreSQL 章节缓存表已就绪");
+            log.info("章节缓存表已就绪");
         } catch (Exception e) {
             log.error("初始化 PostgreSQL 章节缓存表失败", e);
             throw e;

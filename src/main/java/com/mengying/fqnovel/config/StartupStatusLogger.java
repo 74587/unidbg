@@ -16,15 +16,18 @@ public class StartupStatusLogger {
     private static final Logger log = LoggerFactory.getLogger(StartupStatusLogger.class);
 
     private final FQApiProperties fqApiProperties;
+    private final FQApiRuntimeProfileManager runtimeProfileManager;
     private final FQDeviceRotationService deviceRotationService;
     private final FQRegisterKeyService registerKeyService;
 
     public StartupStatusLogger(
         FQApiProperties fqApiProperties,
+        FQApiRuntimeProfileManager runtimeProfileManager,
         FQDeviceRotationService deviceRotationService,
         FQRegisterKeyService registerKeyService
     ) {
         this.fqApiProperties = fqApiProperties;
+        this.runtimeProfileManager = runtimeProfileManager;
         this.deviceRotationService = deviceRotationService;
         this.registerKeyService = registerKeyService;
     }
@@ -50,7 +53,7 @@ public class StartupStatusLogger {
     }
 
     private String currentRuntimeDeviceId() {
-        FQApiProperties.RuntimeProfile runtimeProfile = fqApiProperties.getRuntimeProfile();
+        FQApiProperties.RuntimeProfile runtimeProfile = runtimeProfileManager.getRuntimeProfile();
         FQApiProperties.Device device = runtimeProfile == null ? null : runtimeProfile.getDeviceUnsafe();
         if (device == null) {
             return null;

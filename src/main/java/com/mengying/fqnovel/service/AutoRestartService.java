@@ -53,7 +53,7 @@ public class AutoRestartService {
     }
 
     public void recordFailure(String reason) {
-        if (!downloadProperties.isAutoRestartEnabled()) {
+        if (!downloadProperties.getAutoRestart().isEnabled()) {
             return;
         }
 
@@ -115,7 +115,7 @@ public class AutoRestartService {
     }
 
     private boolean trySelfHeal(String reason, long now, int count, int threshold) {
-        if (!downloadProperties.isAutoRestartSelfHealEnabled()) {
+        if (!downloadProperties.getAutoRestart().isSelfHealEnabled()) {
             return false;
         }
 
@@ -132,7 +132,7 @@ public class AutoRestartService {
         }
         lastSelfHealAtMs = now;
 
-        log.warn("连续异常达到阈值，优先尝试自愈（重置 signer / 切换设备）: count={}, threshold={}, reason={}", count, threshold, reason);
+        log.warn("连续异常达到阈值，优先尝试自愈（重置签名服务 / 切换设备）: count={}, threshold={}, reason={}", count, threshold, reason);
         String selfHealReason = prefixedReason(REASON_PREFIX_AUTO_SELF_HEAL, reason);
 
         // 自愈逻辑放后台线程，避免阻塞当前业务线程；失败也不影响后续退回到 auto-restart。
@@ -141,7 +141,7 @@ public class AutoRestartService {
             boolean invalidateKeyOk = false;
             boolean rotateOk = false;
             try {
-                resetOk = runSelfHealStep("请求重置 signer 失败", () -> {
+                resetOk = runSelfHealStep("请求重置签名服务失败", () -> {
                     FQEncryptServiceWorker.requestGlobalReset(selfHealReason);
                     return true;
                 });
@@ -157,7 +157,7 @@ public class AutoRestartService {
                 if (resetOk && invalidateKeyOk) {
                     recordSuccess();
                     if (!rotateOk) {
-                        log.warn("自愈未完成设备切换，但 signer/key 已刷新成功: rotateOk={}", rotateOk);
+                        log.warn("自愈未完成设备切换，但签名服务/registerkey 已刷新成功: rotateOk={}", rotateOk);
                     }
                 } else {
                     log.warn("自愈未完全成功，保留错误计数以便必要时触发重启: resetOk={}, invalidateKeyOk={}, rotateOk={}",
@@ -174,27 +174,27 @@ public class AutoRestartService {
     }
 
     private int autoRestartThreshold() {
-        return Math.max(1, downloadProperties.getAutoRestartErrorThreshold());
+        return Math.max(1, downloadProperties.getAutoRestart().getErrorThreshold());
     }
 
     private long autoRestartWindowMs() {
-        return Math.max(1L, downloadProperties.getAutoRestartWindowMs());
+        return Math.max(1L, downloadProperties.getAutoRestart().getWindowMs());
     }
 
     private long autoRestartMinIntervalMs() {
-        return Math.max(0L, downloadProperties.getAutoRestartMinIntervalMs());
+        return Math.max(0L, downloadProperties.getAutoRestart().getMinIntervalMs());
     }
 
     private long autoRestartExitDelayMs() {
-        return Math.max(0L, downloadProperties.getAutoRestartExitDelayMs());
+        return Math.max(0L, downloadProperties.getAutoRestart().getExitDelayMs());
     }
 
     private long autoRestartForceHaltAfterMs() {
-        return Math.max(0L, downloadProperties.getAutoRestartForceHaltAfterMs());
+        return Math.max(0L, downloadProperties.getAutoRestart().getForceHaltAfterMs());
     }
 
     private long selfHealCooldownMs() {
-        return Math.max(0L, downloadProperties.getAutoRestartSelfHealCooldownMs());
+        return Math.max(0L, downloadProperties.getAutoRestart().getSelfHealCooldownMs());
     }
 
     private static boolean runSelfHealStep(String message, Supplier<Boolean> action) {
