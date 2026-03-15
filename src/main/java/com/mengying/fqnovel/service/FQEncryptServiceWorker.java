@@ -19,7 +19,9 @@ public class FQEncryptServiceWorker {
 
     private static final AtomicLong RESET_EPOCH = new AtomicLong(0L);
     private static final AtomicLong LAST_RESET_REQUEST_AT_MS = new AtomicLong(0L);
+    private static final AtomicLong LAST_UPSTREAM_EMPTY_RESET_REQUEST_AT_MS = new AtomicLong(0L);
     private static volatile long RESET_COOLDOWN_MS = 2000L;
+    private static volatile long UPSTREAM_EMPTY_RESET_COOLDOWN_MS = 8000L;
     private final FQEncryptService signer;
     private long localResetEpoch = 0L;
 
@@ -27,27 +29,40 @@ public class FQEncryptServiceWorker {
     public FQEncryptServiceWorker(UnidbgProperties unidbgProperties) {
         UnidbgProperties properties = Objects.requireNonNull(unidbgProperties, "unidbgProperties must not be null");
         RESET_COOLDOWN_MS = Math.max(0L, properties.getResetCooldownMs());
+        UPSTREAM_EMPTY_RESET_COOLDOWN_MS = Math.max(0L, properties.getUpstreamEmptyResetCooldownMs());
         this.signer = new FQEncryptService(properties);
     }
 
-    public static long requestGlobalReset(String reason) {
+    public static synchronized long requestGlobalReset(String reason) {
         if (ProcessLifecycle.isShuttingDown()) {
             return RESET_EPOCH.get();
         }
 
         long now = System.currentTimeMillis();
-        long cooldown = RESET_COOLDOWN_MS;
-        if (cooldown > 0) {
-            long last = LAST_RESET_REQUEST_AT_MS.get();
-            if (last > 0 && now - last < cooldown) {
-                return RESET_EPOCH.get();
-            }
-            LAST_RESET_REQUEST_AT_MS.set(now);
+        if (isWithinCooldown(LAST_RESET_REQUEST_AT_MS.get(), now, RESET_COOLDOWN_MS)) {
+            return RESET_EPOCH.get();
+        }
+        if (isUpstreamEmptyReset(reason)
+            && isWithinCooldown(LAST_UPSTREAM_EMPTY_RESET_REQUEST_AT_MS.get(), now, UPSTREAM_EMPTY_RESET_COOLDOWN_MS)) {
+            return RESET_EPOCH.get();
+        }
+
+        LAST_RESET_REQUEST_AT_MS.set(now);
+        if (isUpstreamEmptyReset(reason)) {
+            LAST_UPSTREAM_EMPTY_RESET_REQUEST_AT_MS.set(now);
         }
 
         long epoch = RESET_EPOCH.incrementAndGet();
-        log.warn("请求重置签名服务（unidbg）: epoch={}, reason={}", epoch, reason);
+        log.warn("请求重置签名服务: epoch={}, reason={}", epoch, reason);
         return epoch;
+    }
+
+    private static boolean isWithinCooldown(long lastAtMs, long nowMs, long cooldownMs) {
+        return cooldownMs > 0 && lastAtMs > 0 && nowMs - lastAtMs < cooldownMs;
+    }
+
+    private static boolean isUpstreamEmptyReset(String reason) {
+        return reason != null && reason.contains(UpstreamSignedRequestService.REASON_UPSTREAM_EMPTY);
     }
 
     /**

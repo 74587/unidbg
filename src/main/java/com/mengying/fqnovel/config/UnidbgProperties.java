@@ -24,6 +24,14 @@ public class UnidbgProperties {
     private long resetCooldownMs = 2000L;
 
     /**
+     * 空响应（UPSTREAM_EMPTY）触发 signer 重置时的专属最小间隔（ms）。
+     * <p>
+     * 该值通常应大于等于 resetCooldownMs，用于进一步抑制空响应抖动导致的短时间连续 reset。
+     * 设为 0 可禁用该专属节流。
+     */
+    private long upstreamEmptyResetCooldownMs = 8000L;
+
+    /**
      * 番茄小说 APK 文件路径（建议使用 base.apk 的绝对路径）
      * 优先级高于 apkClasspath；适合本地或容器运行时挂载文件。
      */
@@ -49,6 +57,14 @@ public class UnidbgProperties {
 
     public void setResetCooldownMs(long resetCooldownMs) {
         this.resetCooldownMs = resetCooldownMs;
+    }
+
+    public long getUpstreamEmptyResetCooldownMs() {
+        return upstreamEmptyResetCooldownMs;
+    }
+
+    public void setUpstreamEmptyResetCooldownMs(long upstreamEmptyResetCooldownMs) {
+        this.upstreamEmptyResetCooldownMs = upstreamEmptyResetCooldownMs;
     }
 
     public String getApkPath() {
