@@ -40,15 +40,19 @@ public class AutoRestartService {
     }
 
     private final AtomicInteger errorCount = new AtomicInteger(0);
+    private final AtomicInteger upstreamEmptyErrorCount = new AtomicInteger(0);
     private final AtomicBoolean healing = new AtomicBoolean(false);
     private volatile long windowStartMs = 0L;
+    private volatile long upstreamEmptyWindowStartMs = 0L;
     private volatile long lastRestartAtMs = 0L;
     private volatile long lastSelfHealAtMs = 0L;
     private final AtomicBoolean restarting = new AtomicBoolean(false);
 
     public synchronized void recordSuccess() {
         errorCount.set(0);
+        upstreamEmptyErrorCount.set(0);
         windowStartMs = 0L;
+        upstreamEmptyWindowStartMs = 0L;
         restarting.set(false);
     }
 
@@ -58,17 +62,23 @@ public class AutoRestartService {
         }
 
         long now = System.currentTimeMillis();
-        int threshold = autoRestartThreshold();
+        boolean upstreamEmpty = isUpstreamEmptyReason(reason);
+        int threshold = autoRestartThreshold(upstreamEmpty);
 
         int count;
         synchronized (this) {
             long windowMs = autoRestartWindowMs();
-            long start = windowStartMs;
+            AtomicInteger counter = upstreamEmpty ? upstreamEmptyErrorCount : errorCount;
+            long start = upstreamEmpty ? upstreamEmptyWindowStartMs : windowStartMs;
             if (start == 0L || now - start > windowMs) {
-                windowStartMs = now;
-                errorCount.set(0);
+                if (upstreamEmpty) {
+                    upstreamEmptyWindowStartMs = now;
+                } else {
+                    windowStartMs = now;
+                }
+                counter.set(0);
             }
-            count = errorCount.incrementAndGet();
+            count = counter.incrementAndGet();
         }
 
         if (count < threshold) {
@@ -176,8 +186,14 @@ public class AutoRestartService {
         return prefix + Texts.nullToEmpty(reason);
     }
 
-    private int autoRestartThreshold() {
-        return Math.max(1, downloadProperties.getAutoRestart().getErrorThreshold());
+    private int autoRestartThreshold(boolean upstreamEmpty) {
+        int configured = upstreamEmpty
+            ? downloadProperties.getAutoRestart().getUpstreamEmptyErrorThreshold()
+            : downloadProperties.getAutoRestart().getErrorThreshold();
+        if (configured <= 0) {
+            configured = downloadProperties.getAutoRestart().getErrorThreshold();
+        }
+        return Math.max(1, configured);
     }
 
     private long autoRestartWindowMs() {
@@ -210,6 +226,10 @@ public class AutoRestartService {
             log.warn("自愈：" + message, t);
             return false;
         }
+    }
+
+    private static boolean isUpstreamEmptyReason(String reason) {
+        return Texts.hasText(reason) && reason.contains(UpstreamSignedRequestService.REASON_UPSTREAM_EMPTY);
     }
 
     @PreDestroy

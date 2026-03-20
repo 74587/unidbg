@@ -262,6 +262,7 @@ public class FQDownloadProperties {
     public static class AutoRestart {
         private boolean enabled = true;
         private int errorThreshold = 3;
+        private int upstreamEmptyErrorThreshold = 8;
         private long windowMs = 5 * 60 * 1000L;
         private long minIntervalMs = 60 * 1000L;
         private long forceHaltAfterMs = 10_000L;
@@ -283,6 +284,14 @@ public class FQDownloadProperties {
 
         public void setErrorThreshold(int errorThreshold) {
             this.errorThreshold = errorThreshold;
+        }
+
+        public int getUpstreamEmptyErrorThreshold() {
+            return upstreamEmptyErrorThreshold;
+        }
+
+        public void setUpstreamEmptyErrorThreshold(int upstreamEmptyErrorThreshold) {
+            this.upstreamEmptyErrorThreshold = upstreamEmptyErrorThreshold;
         }
 
         public long getWindowMs() {

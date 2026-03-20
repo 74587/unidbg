@@ -55,6 +55,7 @@ fq:
     auto-restart:
       enabled: true
       error-threshold: 5
+      upstream-empty-error-threshold: 8
       window-ms: 300000
       min-interval-ms: 120000
       force-halt-after-ms: 10000
