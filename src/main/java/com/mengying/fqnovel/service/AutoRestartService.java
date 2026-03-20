@@ -229,7 +229,9 @@ public class AutoRestartService {
     }
 
     private static boolean isUpstreamEmptyReason(String reason) {
-        return Texts.hasText(reason) && reason.contains(UpstreamSignedRequestService.REASON_UPSTREAM_EMPTY);
+        return Texts.hasText(reason)
+            && (reason.contains(UpstreamSignedRequestService.REASON_UPSTREAM_EMPTY)
+            || reason.contains(UpstreamSignedRequestService.REASON_CHAPTER_EMPTY_OR_SHORT));
     }
 
     @PreDestroy

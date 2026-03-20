@@ -25,11 +25,14 @@ public class UpstreamSignedRequestService {
 
     public static final String REASON_ILLEGAL_ACCESS = "ILLEGAL_ACCESS";
     public static final String REASON_UPSTREAM_EMPTY = "UPSTREAM_EMPTY";
+    public static final String REASON_CHAPTER_EMPTY_OR_SHORT = "CHAPTER_EMPTY_OR_SHORT";
     public static final String REASON_UPSTREAM_GZIP = "UPSTREAM_GZIP";
     public static final String REASON_UPSTREAM_NON_JSON = "UPSTREAM_NON_JSON";
     public static final String REASON_SIGNER_FAIL = "SIGNER_FAIL";
 
     private static final String EX_EMPTY_UPSTREAM_RESPONSE = "Empty upstream response";
+    private static final String EX_CHAPTER_EMPTY_OR_SHORT = "章节内容为空/过短";
+    private static final String EX_ENCRYPTED_DATA_TOO_SHORT = "Encrypted data too short";
     private static final String EX_GZIP_NOT_IN_FORMAT = "Not in GZIP format";
     private static final String EX_JACKSON_EMPTY_CONTENT = "No content to map due to end-of-input";
     private static final String EX_SIGNER_FAIL = "签名生成失败";
@@ -166,6 +169,9 @@ public class UpstreamSignedRequestService {
         String normalized = Texts.trimToEmpty(message);
         if (containsIllegalAccess(normalized)) {
             return REASON_ILLEGAL_ACCESS;
+        }
+        if (normalized.contains(EX_CHAPTER_EMPTY_OR_SHORT) || normalized.contains(EX_ENCRYPTED_DATA_TOO_SHORT)) {
+            return REASON_CHAPTER_EMPTY_OR_SHORT;
         }
         if (normalized.contains(EX_EMPTY_UPSTREAM_RESPONSE) || normalized.contains(EX_JACKSON_EMPTY_CONTENT)) {
             return REASON_UPSTREAM_EMPTY;

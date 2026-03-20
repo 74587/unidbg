@@ -42,13 +42,13 @@ public class FQEncryptServiceWorker {
         if (isWithinCooldown(lastResetRequestAtMs, now, RESET_COOLDOWN_MS)) {
             return RESET_EPOCH.get();
         }
-        if (isUpstreamEmptyReset(reason)
+        if (isSoftUpstreamReset(reason)
             && isWithinCooldown(lastUpstreamEmptyResetRequestAtMs, now, UPSTREAM_EMPTY_RESET_COOLDOWN_MS)) {
             return RESET_EPOCH.get();
         }
 
         lastResetRequestAtMs = now;
-        if (isUpstreamEmptyReset(reason)) {
+        if (isSoftUpstreamReset(reason)) {
             lastUpstreamEmptyResetRequestAtMs = now;
         }
 
@@ -61,8 +61,10 @@ public class FQEncryptServiceWorker {
         return cooldownMs > 0 && lastAtMs > 0 && nowMs - lastAtMs < cooldownMs;
     }
 
-    private static boolean isUpstreamEmptyReset(String reason) {
-        return reason != null && reason.contains(UpstreamSignedRequestService.REASON_UPSTREAM_EMPTY);
+    private static boolean isSoftUpstreamReset(String reason) {
+        return reason != null
+            && (reason.contains(UpstreamSignedRequestService.REASON_UPSTREAM_EMPTY)
+            || reason.contains(UpstreamSignedRequestService.REASON_CHAPTER_EMPTY_OR_SHORT));
     }
 
     /**

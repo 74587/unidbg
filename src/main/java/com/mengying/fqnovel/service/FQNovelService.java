@@ -196,6 +196,8 @@ public class FQNovelService {
                 "获取章节内容失败: 上游返回非JSON（已重试仍失败）";
             case UpstreamSignedRequestService.REASON_UPSTREAM_EMPTY ->
                 "获取章节内容失败: 空响应（已重试仍失败）";
+            case UpstreamSignedRequestService.REASON_CHAPTER_EMPTY_OR_SHORT ->
+                "获取章节内容失败: 章节内容为空/过短（已重试仍失败）";
             case UpstreamSignedRequestService.REASON_SIGNER_FAIL ->
                 "获取章节内容失败: 签名生成失败（已重试仍失败）";
             default -> null;

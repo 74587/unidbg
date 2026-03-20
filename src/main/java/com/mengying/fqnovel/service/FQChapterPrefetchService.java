@@ -55,6 +55,7 @@ public class FQChapterPrefetchService {
     private final FQNovelService fqNovelService;
     private final FQDirectoryService fqDirectoryService;
     private final ChapterContentBuilder chapterContentBuilder;
+    private final AutoRestartService autoRestartService;
     private final ObjectProvider<PgChapterCacheService> pgChapterCacheServiceProvider;
     @Qualifier("fqPrefetchExecutor")
     private final Executor prefetchExecutor;
@@ -72,6 +73,7 @@ public class FQChapterPrefetchService {
         FQNovelService fqNovelService,
         FQDirectoryService fqDirectoryService,
         ChapterContentBuilder chapterContentBuilder,
+        AutoRestartService autoRestartService,
         ObjectProvider<PgChapterCacheService> pgChapterCacheServiceProvider,
         @Qualifier("fqPrefetchExecutor") Executor prefetchExecutor
     ) {
@@ -79,6 +81,7 @@ public class FQChapterPrefetchService {
         this.fqNovelService = fqNovelService;
         this.fqDirectoryService = fqDirectoryService;
         this.chapterContentBuilder = chapterContentBuilder;
+        this.autoRestartService = autoRestartService;
         this.pgChapterCacheServiceProvider = pgChapterCacheServiceProvider;
         this.prefetchExecutor = prefetchExecutor;
     }
@@ -288,6 +291,7 @@ public class FQChapterPrefetchService {
                 }
 
                 Map<String, ItemContent> dataMap = batch.data().data();
+                String firstBatchRiskReason = null;
                 for (String itemId : batchIds) {
                     ItemContent content = dataMap.get(itemId);
                     if (content == null) {
@@ -297,10 +301,16 @@ public class FQChapterPrefetchService {
                         FQNovelChapterInfo info = chapterContentBuilder.buildChapterInfo(bookId, itemId, content);
                         cacheChapter(bookId, itemId, info);
                     } catch (Exception e) {
-                        recordChapterFailure(bookId, itemId, e.getMessage());
+                        String normalizedReason = recordChapterFailure(bookId, itemId, e.getMessage(), false);
+                        if (firstBatchRiskReason == null
+                            && UpstreamSignedRequestService.REASON_CHAPTER_EMPTY_OR_SHORT.equals(
+                                UpstreamSignedRequestService.resolveRetryReason(normalizedReason))) {
+                            firstBatchRiskReason = normalizedReason;
+                        }
                         log.debug("预取章节处理失败 - bookId: {}, itemId: {}", bookId, itemId, e);
                     }
                 }
+                handleChapterRiskSignal(firstBatchRiskReason);
             }, exec);
         });
     }
@@ -522,8 +532,17 @@ public class FQChapterPrefetchService {
     }
 
     private void recordChapterFailure(String bookId, String chapterId, String reason) {
-        cacheChapterFailure(bookId, chapterId, reason);
-        cacheChapterRetryBackoff(bookId, chapterId, reason);
+        recordChapterFailure(bookId, chapterId, reason, true);
+    }
+
+    private String recordChapterFailure(String bookId, String chapterId, String reason, boolean countRiskSignal) {
+        String normalizedReason = normalizeFailureReason(reason);
+        cacheChapterFailure(bookId, chapterId, normalizedReason);
+        cacheChapterRetryBackoff(bookId, chapterId, normalizedReason);
+        if (countRiskSignal) {
+            handleChapterRiskSignal(normalizedReason);
+        }
+        return normalizedReason;
     }
 
     private static boolean isChapterRetryBackoffReason(String reason) {
@@ -538,6 +557,15 @@ public class FQChapterPrefetchService {
             return false;
         }
         return isChapterRetryBackoffReason(reason) || reason.contains("upstream item code=");
+    }
+
+    private void handleChapterRiskSignal(String normalizedReason) {
+        String retryReason = UpstreamSignedRequestService.resolveRetryReason(normalizedReason);
+        if (!UpstreamSignedRequestService.REASON_CHAPTER_EMPTY_OR_SHORT.equals(retryReason)) {
+            return;
+        }
+        FQEncryptServiceWorker.requestGlobalReset(retryReason);
+        autoRestartService.recordFailure(retryReason);
     }
 
     private void logChapterWarnThrottled(String bookId, String chapterId, String reason, Throwable throwable) {
