@@ -1,7 +1,6 @@
 package com.mengying.fqnovel.web;
 
 import com.mengying.fqnovel.dto.FQNovelResponse;
-import com.mengying.fqnovel.service.AutoRestartService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -32,18 +31,20 @@ public class GlobalExceptionHandler {
 
     private static final Logger log = LoggerFactory.getLogger(GlobalExceptionHandler.class);
 
-    private final AutoRestartService autoRestartService;
     private final ObjectMapper objectMapper;
 
-    public GlobalExceptionHandler(AutoRestartService autoRestartService, ObjectMapper objectMapper) {
-        this.autoRestartService = autoRestartService;
+    public GlobalExceptionHandler(ObjectMapper objectMapper) {
         this.objectMapper = objectMapper;
     }
 
     @ExceptionHandler(AsyncRequestTimeoutException.class)
     public ResponseEntity<FQNovelResponse<Void>> handleAsyncTimeout(AsyncRequestTimeoutException ex) {
-        autoRestartService.recordFailure("ASYNC_TIMEOUT");
-        log.warn("异步请求超时", ex);
+        // 请求超时通常代表上游阻塞或客户端等待窗口结束，不应直接触发自愈/重启计数。
+        if (log.isDebugEnabled()) {
+            log.debug("异步请求超时", ex);
+        } else {
+            log.warn("异步请求超时");
+        }
         return buildError(HttpStatus.GATEWAY_TIMEOUT, "request timeout");
     }
 

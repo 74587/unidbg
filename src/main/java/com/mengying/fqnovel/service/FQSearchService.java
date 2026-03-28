@@ -125,6 +125,7 @@ public class FQSearchService {
 
     private void recordSearchOutcome(FQNovelResponse<?> response, String failureReason) {
         if (RequestCacheHelper.isResponseSuccess(response)) {
+            FQEncryptServiceWorker.recordUpstreamSuccess();
             autoRestartService.recordSuccess();
         } else {
             autoRestartService.recordFailure(failureReason);
@@ -146,7 +147,7 @@ public class FQSearchService {
             inflightSearch,
             () -> searchBooksEnhancedInternalAsync(searchRequest),
             RequestCacheHelper::isResponseSuccessWithData,
-            autoRestartService::recordSuccess,
+            null,
             "搜索"
         );
     }

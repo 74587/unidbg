@@ -136,6 +136,7 @@ public class FQDirectoryService {
             } else {
                 FQDirectoryResponseTransformer.enhanceChapterList(directoryResponse);
             }
+            FQEncryptServiceWorker.recordUpstreamSuccess();
             return FQNovelResponse.success(directoryResponse);
 
         } catch (Exception e) {

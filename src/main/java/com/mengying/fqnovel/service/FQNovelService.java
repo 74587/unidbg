@@ -129,6 +129,7 @@ public class FQNovelService {
             return FQNovelResponse.error((int) batchResponse.code(), msg);
         }
 
+        FQEncryptServiceWorker.recordUpstreamSuccess();
         autoRestartService.recordSuccess();
         return FQNovelResponse.success(batchResponse);
     }

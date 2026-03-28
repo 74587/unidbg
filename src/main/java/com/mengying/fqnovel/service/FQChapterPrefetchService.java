@@ -172,7 +172,6 @@ public class FQChapterPrefetchService {
                         cacheChapter(bookId, chapterId, info);
                         return FQNovelResponse.success(info);
                     } catch (Exception e) {
-                        recordChapterFailure(bookId, chapterId, e.getMessage());
                         throw new RuntimeException(e);
                     }
                 });
@@ -248,7 +247,7 @@ public class FQChapterPrefetchService {
             return singlePrefetchKey(bookId, chapterId);
         }
         int size = prefetchBatchSize();
-        int bucketStart = (index / size) * size;
+        int bucketStart = bucketStartFor(index, size);
         return bookId + ":bucket:" + bucketStart + ":" + size;
     }
 
@@ -268,8 +267,17 @@ public class FQChapterPrefetchService {
         if (chapterIndex < 0) {
             return Collections.singletonList(chapterId);
         }
-        int endExclusive = Math.min(itemIds.size(), chapterIndex + prefetchBatchSize());
-        return itemIds.subList(chapterIndex, endExclusive);
+        int size = prefetchBatchSize();
+        int bucketStart = bucketStartFor(chapterIndex, size);
+        int endExclusive = Math.min(itemIds.size(), bucketStart + size);
+        return itemIds.subList(bucketStart, endExclusive);
+    }
+
+    private static int bucketStartFor(int chapterIndex, int batchSize) {
+        if (chapterIndex < 0 || batchSize <= 0) {
+            return 0;
+        }
+        return (chapterIndex / batchSize) * batchSize;
     }
 
     private CompletableFuture<Void> doPrefetchAndCacheAsync(String bookId, String chapterId) {
